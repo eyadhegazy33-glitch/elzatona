@@ -1,0 +1,10 @@
+node_modules
+dist
+.venv/
+.vercel/
+employee_portal/
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store

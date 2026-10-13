@@ -1,0 +1,464 @@
+{
+  "brand": {
+    "name": "elzatona",
+    "section": "people",
+    "portal": "EMPLOYEE PORTAL"
+  },
+  "controls": {
+    "language": "Language",
+    "english": "English",
+    "arabic": "العربية",
+    "darkMode": "Switch to dark mode",
+    "lightMode": "Switch to light mode"
+  },
+  "layout": {
+    "workspace": "Workspace",
+    "navigation": {
+      "label": "Main navigation",
+      "dashboard": "Dashboard",
+      "pendingAccounts": "Pending accounts",
+      "employees": "Employees",
+      "roles": "Roles",
+      "settings": "Settings"
+    },
+    "permissionsLoading": "Loading your access…",
+    "openNavigation": "Open navigation",
+    "closeNavigation": "Close navigation",
+    "signOut": "Sign out",
+    "signingOut": "Signing out…"
+  },
+  "dashboard": {
+    "welcome": "Welcome to your workspace",
+    "description": "Your workspace overview. More dashboard features are coming soon.",
+    "descriptionNamed": "Welcome, {{name}}. Your workspace overview is ready. More dashboard features are coming soon."
+  },
+  "auth": {
+    "errors": {
+      "invalidCredentials": "The email or password is incorrect.",
+      "emailNotConfirmed": "Please confirm your email address before signing in.",
+      "tooManyAttempts": "Supabase is temporarily limiting sign-in or sign-up requests from this network. Wait a few minutes, then try again. This is not a password error.",
+      "captchaFailed": "The security check could not be verified. Please complete it again.",
+      "emailAlreadyRegistered": "An account with this email address already exists.",
+      "weakPassword": "Choose a stronger password with at least 8 characters, including a letter and a number.",
+      "network": "We couldn't reach the service. Check your connection and try again.",
+      "supabaseNotConfigured": "Authentication is unavailable until the Supabase URL and anonymous key are configured in your .env file.",
+      "generic": "We couldn't complete that request. Please try again.",
+      "profileUnavailable": "We couldn't load your account profile. Please try again later.",
+      "permissionsUnavailable": "We couldn't verify your access permissions. Please try again later.",
+      "signOutFailed": "We couldn't safely end your session. Please try again."
+    },
+    "captcha": {
+      "prompt": "Complete the security check to continue."
+    },
+    "messages": {
+      "loading": "Checking your session…",
+      "checkingPermissions": "Checking your access…",
+      "signingOut": "Ending your session…",
+      "accountRejected": "Your registration was not approved. Contact your organization for help.",
+      "accountSuspended": "Your account is suspended. Contact your organization for help.",
+      "notAllowed": "You don't have permission to access this page."
+    }
+  },
+  "register": {
+    "logoPlaceholder": "Workspace logo",
+    "formLabel": "Create your account",
+    "fields": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "email": "Email address",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "role": "The role I work in"
+    },
+    "placeholders": {
+      "firstName": "Enter your first name",
+      "lastName": "Enter your last name",
+      "email": "you@company.com",
+      "password": "Create a password",
+      "confirmPassword": "Enter your password again"
+    },
+    "passwordHint": "At least 8 characters, including one letter and one number.",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "selectRole": "Select your role",
+    "rolesLoading": "Loading roles…",
+    "rolesUnavailable": "We couldn't load the available roles. Please try again.",
+    "noRoles": "There are no roles available for registration right now.",
+    "roleNote": "This is only a request. A manager will confirm your role.",
+    "retry": "Try again",
+    "submit": "Create account",
+    "submitting": "Creating your account…",
+    "haveAccount": "Already have an account?",
+    "backToLogin": "Back to sign in",
+    "successTitle": "Registration submitted",
+    "successMessage": "Your account was created. Please verify your email, then wait for a manager to approve your account.",
+    "validation": {
+      "firstNameMin": "First name must be at least 2 characters.",
+      "firstNameMax": "First name must be 50 characters or fewer.",
+      "lastNameMin": "Last name must be at least 2 characters.",
+      "lastNameMax": "Last name must be 50 characters or fewer.",
+      "email": "Enter a valid email address.",
+      "passwordMin": "Password must be at least 8 characters.",
+      "passwordComplexity": "Password must include at least one letter and one number.",
+      "confirmPassword": "Please confirm your password.",
+      "passwordMismatch": "Passwords do not match.",
+      "role": "Select the role you work in."
+    }
+  },
+  "login": {
+    "formLabel": "Sign in to your account",
+    "fields": {
+      "email": "Email address",
+      "password": "Password"
+    },
+    "placeholders": {
+      "email": "you@company.com",
+      "password": "Enter your password"
+    },
+    "forgotPassword": "Forgot password?",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "noAccount": "New to the team?",
+    "createAccount": "Create an account",
+    "failedAttempts": "Sign-in failed. {{count}} attempts remaining before a 60-second lockout.",
+    "lockout": "Too many failed attempts. Try again in {{seconds}} seconds.",
+    "lockoutButton": "Try again in {{seconds}}s",
+    "accountRejected": "Your account was rejected.",
+    "accountRejectedWithReason": "Your account was rejected. Reason: {{reason}}",
+    "accountSuspended": "Your account is suspended. Contact your manager.",
+    "validation": {
+      "email": "Enter a valid email address.",
+      "password": "Enter your password."
+    }
+  },
+  "forgotPassword": {
+    "formLabel": "Reset your password",
+    "submit": "Send reset link",
+    "submitting": "Sending reset link…",
+    "success": "If an account exists for that email, a password reset link is on its way. Please check your inbox.",
+    "validation": {
+      "email": "Enter a valid email address."
+    }
+  },
+  "resetPassword": {
+    "title": "Choose a new password",
+    "description": "Enter and confirm your new password.",
+    "formLabel": "Set a new password",
+    "submit": "Update password",
+    "submitting": "Updating password…",
+    "success": "Your password has been updated. You can now sign in with your new password."
+  },
+  "pendingApproval": {
+    "description": "Your account is waiting for a manager to review your request. We’ll let you know when access is approved.",
+    "name": "Name",
+    "checkAgain": "Check again",
+    "checking": "Checking…",
+    "stillPending": "Your account is still waiting for approval.",
+    "signOut": "Sign out",
+    "signingOut": "Signing out…"
+  },
+  "pendingAccounts": {
+    "loading": "Loading pending accounts…",
+    "refresh": "Refresh",
+    "empty": "There are no accounts waiting for approval.",
+    "unknownName": "Name not provided",
+    "noRequestedRole": "No role requested",
+    "approve": "Approve",
+    "reject": "Reject",
+    "columns": {
+      "name": "Name",
+      "email": "Email",
+      "role": "Requested role",
+      "created": "Requested",
+      "actions": "Actions"
+    },
+    "errors": {
+      "load": "We couldn't load pending accounts. Please try again."
+    },
+    "toast": {
+      "approved": "Account approved.",
+      "rejected": "Account rejected.",
+      "actionFailed": "We couldn't complete that action. Please try again."
+    },
+    "dialog": {
+      "approveTitle": "Approve account",
+      "rejectTitle": "Reject account",
+      "roleLabel": "Assign role",
+      "selectRole": "Select a role",
+      "reasonLabel": "Reason for rejection",
+      "reasonRequired": "Please provide a reason for rejecting this account.",
+      "cancel": "Cancel",
+      "confirm": "Confirm",
+      "working": "Saving…"
+    }
+  },
+  "employees": {
+    "loading": "Loading employees…",
+    "refresh": "Refresh",
+    "search": "Search name or email",
+    "filterRole": "Filter by role",
+    "filterStatus": "Filter by status",
+    "allRoles": "All roles",
+    "allStatuses": "All statuses",
+    "empty": "No employees match these filters.",
+    "noRole": "No role",
+    "adminProtected": "Admin management requires the roles.manage permission.",
+    "columns": {
+      "name": "Name",
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "updated": "Last updated",
+      "actions": "Actions"
+    },
+    "status": {
+      "active": "Active",
+      "suspended": "Suspended",
+      "pending": "Pending",
+      "rejected": "Rejected"
+    },
+    "actions": {
+      "edit": "Edit employee",
+      "suspend": "Suspend employee",
+      "reactivate": "Reactivate employee",
+      "delete": "Delete employee",
+      "reset": "Send password reset email"
+    },
+    "fields": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "role": "Role"
+    },
+    "validation": {
+      "firstNameMin": "First name must be at least 2 characters.",
+      "firstNameMax": "First name must be 50 characters or fewer.",
+      "lastNameMin": "Last name must be at least 2 characters.",
+      "lastNameMax": "Last name must be 50 characters or fewer.",
+      "role": "Select a role."
+    },
+    "errors": {
+      "load": "We couldn't load employees, roles, or permissions. Refresh and try again.",
+      "action": "We couldn't complete the action. Check your permissions and try again.",
+      "permission": "You don't have permission to manage this employee.",
+      "cannotSuspendSelf": "You can't suspend your own account.",
+      "cannotDeleteSelf": "You can't delete your own account.",
+      "lastAdmin": "The last active Admin cannot be demoted, suspended, or deleted."
+    },
+    "toast": {
+      "updated": "Employee details updated.",
+      "suspended": "Employee suspended.",
+      "reactivated": "Employee reactivated.",
+      "deleted": "Employee removed from the list.",
+      "resetSent": "Password reset email sent."
+    },
+    "dialog": {
+      "editTitle": "Edit employee",
+      "suspendTitle": "Suspend employee",
+      "reactivateTitle": "Reactivate employee",
+      "deleteTitle": "Delete employee",
+      "resetTitle": "Send password reset email",
+      "suspendMessage": "This employee will no longer be able to sign in until reactivated.",
+      "reactivateMessage": "This employee will be able to sign in again.",
+      "deleteMessage": "This employee will be soft-deleted and hidden from the employee list. This cannot be undone here.",
+      "resetMessage": "Send a password reset link to {{email}}?",
+      "suspendConfirm": "Suspend",
+      "reactivateConfirm": "Reactivate",
+      "deleteConfirm": "Delete employee",
+      "resetConfirm": "Send email",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "working": "Working…",
+      "cancel": "Cancel",
+      "close": "Close dialog"
+    },
+    "pagination": {
+      "summary": "Showing {{start}}–{{end}} of {{total}} employees",
+      "page": "Page {{current}} of {{total}}",
+      "previous": "Previous page",
+      "next": "Next page"
+    }
+  },
+  "roles": {
+    "loading": "Loading roles and permissions…",
+    "roleList": "Roles",
+    "empty": "No roles have been created yet.",
+    "selectRole": "Select a role to view and edit its access.",
+    "permissionDescription": "Choose the permissions granted to this role.",
+    "registrableBadge": "Register",
+    "showInRegister": "Show this role in the register form",
+    "registerHelp": "People can request this role when creating an account. A manager must approve the request.",
+    "systemRole": "System role",
+    "fields": {
+      "name": "Role name"
+    },
+    "actions": {
+      "create": "Create role",
+      "rename": "Rename role",
+      "delete": "Delete role",
+      "discard": "Discard changes",
+      "savePermissions": "Save permissions",
+      "saving": "Saving…"
+    },
+    "groups": {
+      "accounts": "Accounts",
+      "employees": "Employees",
+      "roles": "Roles",
+      "audit": "Audit",
+      "settings": "Settings",
+      "dashboard": "Dashboard"
+    },
+    "permissionNames": {
+      "accounts.approve": "Approve accounts",
+      "employees.view": "View employees",
+      "employees.manage": "Manage employees",
+      "roles.manage": "Manage roles and permissions",
+      "audit.view": "View audit log",
+      "settings.manage": "Manage settings",
+      "dashboard.view": "View dashboard"
+    },
+    "permissionDescriptions": {
+      "accounts.approve": "Approve or reject new account requests.",
+      "employees.view": "View employee records.",
+      "employees.manage": "Edit, suspend, reactivate, and remove employees.",
+      "roles.manage": "Create roles and configure role permissions.",
+      "audit.view": "Read the security audit log.",
+      "settings.manage": "Change workspace settings and branding.",
+      "dashboard.view": "Open the workspace dashboard."
+    },
+    "errors": {
+      "load": "We couldn't load roles or permissions. Refresh and try again.",
+      "loadPermissions": "We couldn't load this role's permissions.",
+      "action": "The role change couldn't be completed. Please try again.",
+      "permission": "You don't have permission to manage roles.",
+      "adminOnlyPermission": "Only an Admin can grant roles.manage to a non-Admin role.",
+      "hasUsers": "This role still has assigned or pending users and can't be deleted.",
+      "systemRole": "System roles can't be renamed or deleted, and can't be shown during registration.",
+      "duplicate": "A role with this name already exists.",
+      "invalidName": "Role names must be between 2 and 50 characters."
+    },
+    "toast": {
+      "created": "Role created.",
+      "renamed": "Role renamed.",
+      "deleted": "Role deleted.",
+      "permissionsSaved": "Role permissions saved.",
+      "registrableSaved": "Registration setting saved."
+    },
+    "dialog": {
+      "createTitle": "Create role",
+      "renameTitle": "Rename role",
+      "deleteTitle": "Delete role",
+      "deleteMessage": "Delete “{{name}}”? Roles with assigned or pending users cannot be deleted.",
+      "createConfirm": "Create",
+      "renameConfirm": "Save name",
+      "deleteConfirm": "Delete role",
+      "cancel": "Cancel",
+      "close": "Close dialog"
+    }
+  },
+  "settings": {
+    "tabs": {
+      "label": "Settings sections",
+      "branding": "Branding"
+    },
+    "branding": {
+      "title": "Workspace branding",
+      "workspaceName": "Workspace name",
+      "logo": "Workspace logo",
+      "logoHelp": "PNG, JPEG, WebP, or GIF. Maximum file size: 2 MB.",
+      "logoPreview": "Workspace logo preview",
+      "colors": "Brand colors",
+      "primaryColor": "Primary color",
+      "secondaryColor": "Secondary color",
+      "colorPlaceholder": "#315C45"
+    },
+    "preview": {
+      "title": "Live preview",
+      "sampleTitle": "Welcome to your workspace",
+      "sampleDescription": "This is a preview of your brand colors and logo.",
+      "primaryButton": "Primary",
+      "secondaryButton": "Secondary"
+    },
+    "actions": {
+      "uploadLogo": "Upload image",
+      "removeLogo": "Remove logo",
+      "retry": "Retry",
+      "discard": "Discard changes",
+      "save": "Save branding",
+      "saving": "Saving…"
+    },
+    "errors": {
+      "load": "Brand settings couldn't be loaded. Check the database migration and try again.",
+      "save": "Brand settings couldn't be saved. Please try again.",
+      "workspaceName": "Enter a workspace name.",
+      "invalidColor": "Enter valid six-digit hex colors.",
+      "imageType": "Choose a PNG, JPEG, WebP, or GIF image.",
+      "imageSize": "The image must be 2 MB or smaller.",
+      "cleanupFailed": "Saving failed and the newly uploaded image couldn't be removed. Please check Storage."
+    },
+    "toast": {
+      "saved": "Branding settings saved."
+    }
+  },
+  "notifications": {
+    "open": "Notifications ({{count}} unread)",
+    "title": "Notifications",
+    "loading": "Loading notifications",
+    "empty": "You have no notifications.",
+    "error": "Notifications couldn't be loaded or updated. Please try again later.",
+    "types": {
+      "account_pending": "A new account is waiting for approval.",
+      "account_approved": "Your account was approved.",
+      "default": "You have a new notification."
+    }
+  },
+  "pages": {
+    "login": {
+      "title": "Sign in",
+      "description": "Welcome back to your workspace."
+    },
+    "register": {
+      "title": "Create an account",
+      "description": "Join your team on the people portal."
+    },
+    "pendingApproval": {
+      "title": "Pending approval",
+      "description": "Your account is waiting for approval."
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "Your workspace overview."
+    },
+    "pendingAccounts": {
+      "title": "Pending accounts",
+      "description": "Review employee account requests."
+    },
+    "employees": {
+      "title": "Employees",
+      "description": "Manage your organization's employees."
+    },
+    "roles": {
+      "title": "Roles",
+      "description": "Manage employee roles and access."
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "Configure workspace branding."
+    },
+    "notFound": {
+      "title": "Page not found",
+      "description": "The page you are looking for does not exist."
+    },
+    "notAllowed": {
+      "title": "Not allowed",
+      "description": "You don't have permission to access this page."
+    },
+    "forgotPassword": {
+      "title": "Forgot password?",
+      "description": "Enter your email address and we’ll send you a link to reset your password."
+    },
+    "resetPassword": {
+      "title": "Choose a new password",
+      "description": "Enter and confirm your new password."
+    }
+  }
+}
