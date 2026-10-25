@@ -1,6 +1,10 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
+import { CustomerFormPage } from "../pages/CustomerFormPage";
+import { CustomerCardsPrintPage } from "../pages/CustomerCardsPrintPage";
+import { CustomerProfilePage } from "../pages/CustomerProfilePage";
+import { CustomersPage } from "../pages/CustomersPage";
 import { EmployeesPage } from "../pages/EmployeesPage";
 import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -9,6 +13,7 @@ import { PendingAccountsPage } from "../pages/PendingAccountsPage";
 import { PendingApprovalPage } from "../pages/PendingApprovalPage";
 import { RegisterPage } from "../pages/RegisterPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
+import { ResourcesPage } from "../pages/ResourcesPage";
 import { RolesPage } from "../pages/RolesPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import {
@@ -42,6 +47,37 @@ export const router = createBrowserRouter([
             children: [{ path: "/dashboard", element: <DashboardPage /> }],
           },
           {
+            element: <PermissionRoute permission="customers.cards" />,
+            children: [
+              {
+                path: "/customers/cards/print",
+                element: <CustomerCardsPrintPage />,
+              },
+            ],
+          },
+          {
+            element: <PermissionRoute permission="customers.view" />,
+            children: [
+              { path: "/customers", element: <CustomersPage /> },
+              { path: "/customers/:customerId", element: <CustomerProfilePage /> },
+            ],
+          },
+          {
+            element: <PermissionRoute permission="customers.create" />,
+            children: [
+              { path: "/customers/new", element: <CustomerFormPage /> },
+            ],
+          },
+          {
+            element: <PermissionRoute permission="customers.edit" />,
+            children: [
+              {
+                path: "/customers/:customerId/edit",
+                element: <CustomerFormPage />,
+              },
+            ],
+          },
+          {
             element: <PermissionRoute permission="accounts.approve" />,
             children: [
               {
@@ -53,6 +89,10 @@ export const router = createBrowserRouter([
           {
             element: <PermissionRoute permission="employees.view" />,
             children: [{ path: "/admin/employees", element: <EmployeesPage /> }],
+          },
+          {
+            element: <PermissionRoute permission="resources.manage" />,
+            children: [{ path: "/admin/resources", element: <ResourcesPage /> }],
           },
           {
             element: <PermissionRoute permission="roles.manage" />,

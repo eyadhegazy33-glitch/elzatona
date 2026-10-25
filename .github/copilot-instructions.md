@@ -18,3 +18,10 @@ Code rules:
 - Support RTL (Arabic) and LTR (English), and light and dark mode.
 - Keep components small. Put Supabase calls in /src/lib or /src/services, not inside UI components.
 - Show friendly error messages. Never show raw database errors to the user.
+
+Phase 2 rules:
+- Customer personal data (birth date, phone, name) is private. Never log it with console.log, never put it in URLs, never send it to third-party services.
+- The QR code contains ONLY the customer's secret qr_token. It never contains a name, a birth date, or a phone number.
+- The browser never decides who may enter. Entry is decided by the SQL function scan_customer and check_in.
+- Writing to customers, checkins, imports must go through the SQL functions (RPC), not direct table inserts or updates.
+- Printing cards uses HTML + print CSS (so Arabic text prints correctly), not jsPDF text.

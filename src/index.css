@@ -23,3 +23,208 @@
     font: inherit;
   }
 }
+
+.customer-print-area {
+  display: none;
+}
+
+.customer-print-pages {
+  display: none;
+}
+
+.customer-card {
+  position: relative;
+  display: flex;
+  width: 85.6mm;
+  height: 54mm;
+  overflow: visible;
+  border: 1px solid rgb(var(--color-secondary));
+  border-radius: 2mm;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-primary)),
+    rgb(var(--color-secondary))
+  );
+  color: #fff;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 18%);
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.customer-card::after {
+  position: absolute;
+  z-index: 1;
+  inset: -1.5mm;
+  display: none;
+  content: "";
+  pointer-events: none;
+  background:
+    linear-gradient(#64748b, #64748b) left top / 3mm 0.15mm,
+    linear-gradient(#64748b, #64748b) left top / 0.15mm 3mm,
+    linear-gradient(#64748b, #64748b) right top / 3mm 0.15mm,
+    linear-gradient(#64748b, #64748b) right top / 0.15mm 3mm,
+    linear-gradient(#64748b, #64748b) left bottom / 3mm 0.15mm,
+    linear-gradient(#64748b, #64748b) left bottom / 0.15mm 3mm,
+    linear-gradient(#64748b, #64748b) right bottom / 3mm 0.15mm,
+    linear-gradient(#64748b, #64748b) right bottom / 0.15mm 3mm;
+  background-repeat: no-repeat;
+}
+
+.customer-card-content {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 3mm;
+}
+
+.customer-card-name {
+  display: -webkit-box;
+  max-height: 2.3em;
+  overflow: hidden;
+  font-weight: 700;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.customer-card-qr {
+  display: grid;
+  width: 24mm;
+  height: 24mm;
+  place-items: center;
+  border: 1mm solid #fff;
+  border-radius: 1mm;
+  background: #fff;
+  padding: 1mm;
+}
+
+.customer-card-back {
+  flex-direction: column;
+  padding: 4mm;
+}
+
+@media screen and (max-width: 640px) {
+  .customer-card {
+    width: min(85.6mm, 100%);
+    height: auto;
+    aspect-ratio: 85.6 / 54;
+  }
+
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .customer-print-area,
+  .customer-print-area *,
+  .customer-card-print-root,
+  .customer-card-print-root * {
+    visibility: visible !important;
+  }
+
+  .customer-print-area,
+  .customer-card-print-root {
+    position: absolute;
+    inset: 0;
+    display: block !important;
+    width: 190mm;
+    color: #111827 !important;
+  }
+
+  .customer-card-print-root {
+    width: 100%;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .customer-card-screen-controls {
+    display: none !important;
+  }
+
+  .customer-print-pages {
+    display: block !important;
+  }
+
+  .customer-print-sheet {
+    display: grid;
+    width: 190mm;
+    height: 277mm;
+    align-content: start;
+    justify-content: center;
+    break-after: page;
+    page-break-after: always;
+    overflow: hidden;
+  }
+
+  .customer-print-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .customer-print-grid {
+    display: grid;
+    width: 174.2mm;
+    height: 277mm;
+    grid-template-columns: repeat(2, 85.6mm);
+    grid-auto-rows: 54mm;
+    justify-content: center;
+    align-content: start;
+    column-gap: 3mm;
+    row-gap: 1.75mm;
+  }
+
+  .customer-card {
+    box-sizing: border-box;
+    width: 85.6mm;
+    height: 54mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none;
+  }
+
+  .customer-card::after {
+    display: block;
+    inset: 0;
+    background:
+      linear-gradient(#94a3b8, #94a3b8) left top / 1.5mm 0.15mm,
+      linear-gradient(#94a3b8, #94a3b8) left top / 0.15mm 1.5mm,
+      linear-gradient(#94a3b8, #94a3b8) right top / 1.5mm 0.15mm,
+      linear-gradient(#94a3b8, #94a3b8) right top / 0.15mm 1.5mm,
+      linear-gradient(#94a3b8, #94a3b8) left bottom / 1.5mm 0.15mm,
+      linear-gradient(#94a3b8, #94a3b8) left bottom / 0.15mm 1.5mm,
+      linear-gradient(#94a3b8, #94a3b8) right bottom / 1.5mm 0.15mm,
+      linear-gradient(#94a3b8, #94a3b8) right bottom / 0.15mm 1.5mm;
+  }
+
+  .customer-card-content {
+    padding: 3mm;
+  }
+
+  .customer-card-qr {
+    width: 24mm;
+    height: 24mm;
+  }
+
+  .customer-print-area .customer-print-grid {
+    width: auto;
+    height: auto;
+    grid-auto-rows: 54mm;
+    column-gap: 3mm;
+    row-gap: 1.75mm;
+  }
+
+  .customer-print-area .customer-card {
+    width: 85.6mm;
+    height: 54mm;
+  }
+}

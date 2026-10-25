@@ -28,6 +28,16 @@ const registrationSchema = z
       .trim()
       .min(2, "register.validation.lastNameMin")
       .max(50, "register.validation.lastNameMax"),
+    phoneNumber: z
+      .string()
+      .trim()
+      .min(1, "register.validation.phoneRequired")
+      .regex(/^[+]?[0-9(). -]{7,24}$/, "register.validation.phoneInvalid")
+      .refine(
+        (value) => (value.match(/[0-9]/g) ?? []).length >= 7 &&
+          (value.match(/[0-9]/g) ?? []).length <= 15,
+        "register.validation.phoneInvalid",
+      ),
     email: z
       .string()
       .trim()
@@ -76,6 +86,7 @@ export function RegisterPage() {
     defaultValues: {
       firstName: "",
       lastName: "",
+      phoneNumber: "",
       email: "",
       password: "",
       confirmPassword: "",
@@ -135,6 +146,7 @@ export function RegisterPage() {
       await signUp({
         firstName: values.firstName,
         lastName: values.lastName,
+        phoneNumber: values.phoneNumber,
         email: values.email,
         password: values.password,
         requestedRoleId: values.requestedRoleId,
@@ -251,6 +263,34 @@ export function RegisterPage() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <label className={labelClassName} htmlFor="phoneNumber">
+                    {t("register.fields.phoneNumber")}
+                  </label>
+                  <input
+                    autoComplete="tel"
+                    className={inputClassName}
+                    dir="ltr"
+                    id="phoneNumber"
+                    inputMode="tel"
+                    type="tel"
+                    {...registerField("phoneNumber")}
+                    aria-invalid={Boolean(errors.phoneNumber)}
+                    aria-describedby={
+                      errors.phoneNumber ? "phoneNumber-error" : undefined
+                    }
+                    placeholder={t("register.placeholders.phoneNumber")}
+                  />
+                  {errors.phoneNumber && (
+                    <p
+                      className="mt-1.5 text-sm text-red-600 dark:text-red-400"
+                      id="phoneNumber-error"
+                    >
+                      {t(errors.phoneNumber.message ?? "auth.errors.generic")}
+                    </p>
+                  )}
                 </div>
 
                 <div>

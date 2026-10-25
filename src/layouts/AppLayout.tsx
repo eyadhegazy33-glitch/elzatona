@@ -4,8 +4,11 @@ import {
   ClipboardCheck,
   LogOut,
   Menu,
+  MapPinned,
+  Printer,
   Settings,
   Shield,
+  UsersRound,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -46,10 +49,28 @@ const navigationItems: NavigationItem[] = [
     icon: ClipboardCheck,
   },
   {
+    labelKey: "layout.navigation.customers",
+    path: "/customers",
+    permission: "customers.view",
+    icon: UsersRound,
+  },
+  {
+    labelKey: "layout.navigation.customerCards",
+    path: "/customers/cards/print",
+    permission: "customers.cards",
+    icon: Printer,
+  },
+  {
     labelKey: "layout.navigation.employees",
     path: "/admin/employees",
     permission: "employees.view",
     icon: BriefcaseBusiness,
+  },
+  {
+    labelKey: "layout.navigation.resources",
+    path: "/admin/resources",
+    permission: "resources.manage",
+    icon: MapPinned,
   },
   {
     labelKey: "layout.navigation.roles",
@@ -81,7 +102,9 @@ export function AppLayout() {
   const isRtl = i18n.dir() === "rtl";
   const isApplicationRoute =
     location.pathname === "/dashboard" ||
-    location.pathname.startsWith("/admin/");
+    location.pathname.startsWith("/admin/") ||
+    location.pathname === "/customers" ||
+    location.pathname.startsWith("/customers/");
   const showApplicationLayout =
     isApplicationRoute && profile?.status === "active" && Boolean(session);
 

@@ -4,6 +4,7 @@ import { getSupabaseClient } from "../lib/supabase";
 export type SignUpInput = {
   firstName: string;
   lastName: string;
+  phoneNumber: string;
   email: string;
   password: string;
   requestedRoleId: string;
@@ -15,6 +16,7 @@ export type MyProfile = {
   id: string;
   first_name: string;
   last_name: string;
+  phone_number?: string | null;
   email: string;
   requested_role_id: string | null;
   role_id: string | null;
@@ -169,6 +171,7 @@ export async function signUp(
         data: {
           first_name: input.firstName,
           last_name: input.lastName,
+          phone_number: input.phoneNumber,
           requested_role_id: input.requestedRoleId,
         },
       },

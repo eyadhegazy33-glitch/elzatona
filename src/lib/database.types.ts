@@ -30,6 +30,7 @@ type ProfileRow = {
   id: string;
   first_name: string;
   last_name: string;
+  phone_number: string | null;
   email: string;
   requested_role_id: string | null;
   role_id: string | null;
@@ -100,6 +101,7 @@ export type Database = {
           id: string;
           first_name: string;
           last_name: string;
+          phone_number?: string | null;
           email: string;
           requested_role_id?: string | null;
           role_id?: string | null;
@@ -115,6 +117,7 @@ export type Database = {
           id?: string;
           first_name?: string;
           last_name?: string;
+          phone_number?: string | null;
           email?: string;
           requested_role_id?: string | null;
           role_id?: string | null;
@@ -214,6 +217,257 @@ export type Database = {
           },
         ]
       >;
+      imports: Table<
+        {
+          id: string;
+          created_by: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          created_by?: string | null;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          created_by?: string | null;
+          created_at?: string;
+        },
+        [
+          {
+            foreignKeyName: "imports_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ]
+      >;
+      student_types: Table<
+        {
+          id: string;
+          name_en: string;
+          name_ar: string;
+          is_active: boolean;
+          created_at: string;
+        },
+        {
+          id?: string;
+          name_en: string;
+          name_ar: string;
+          is_active?: boolean;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          name_en?: string;
+          name_ar?: string;
+          is_active?: boolean;
+          created_at?: string;
+        }
+      >;
+      customers: Table<
+        {
+          id: string;
+          code: string;
+          first_name: string;
+          last_name: string;
+          full_name: string;
+          birth_date: string;
+          student_type_id: string;
+          phone: string | null;
+          expiry_date: string | null;
+          notes: string | null;
+          status: Database["public"]["Enums"]["customer_status"];
+          qr_token: string;
+          import_id: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        },
+        {
+          id?: string;
+          code?: string;
+          first_name: string;
+          last_name: string;
+          full_name?: never;
+          birth_date: string;
+          student_type_id: string;
+          phone?: string | null;
+          expiry_date?: string | null;
+          notes?: string | null;
+          status?: Database["public"]["Enums"]["customer_status"];
+          qr_token?: string;
+          import_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        },
+        {
+          id?: string;
+          code?: string;
+          first_name?: string;
+          last_name?: string;
+          full_name?: never;
+          birth_date?: string;
+          student_type_id?: string;
+          phone?: string | null;
+          expiry_date?: string | null;
+          notes?: string | null;
+          status?: Database["public"]["Enums"]["customer_status"];
+          qr_token?: string;
+          import_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        },
+        [
+          {
+            foreignKeyName: "customers_student_type_id_fkey";
+            columns: ["student_type_id"];
+            isOneToOne: false;
+            referencedRelation: "student_types";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "customers_import_id_fkey";
+            columns: ["import_id"];
+            isOneToOne: false;
+            referencedRelation: "imports";
+            referencedColumns: ["id"];
+          },
+        ]
+      >;
+      checkins: Table<
+        {
+          id: number;
+          customer_id: string;
+          resource_id: string | null;
+          checked_in_at: string;
+          timer_started_at: string;
+          last_qualifying_order_at: string | null;
+          checked_out_at: string | null;
+          scanned_by: string | null;
+          created_by: string | null;
+          closed_by: string | null;
+        },
+        {
+          id?: never;
+          customer_id: string;
+          resource_id?: string | null;
+          checked_in_at?: string;
+          timer_started_at?: string;
+          last_qualifying_order_at?: string | null;
+          checked_out_at?: string | null;
+          scanned_by?: string | null;
+          created_by?: string | null;
+          closed_by?: string | null;
+        },
+        {
+          id?: never;
+          customer_id?: string;
+          resource_id?: string | null;
+          checked_in_at?: string;
+          timer_started_at?: string;
+          last_qualifying_order_at?: string | null;
+          checked_out_at?: string | null;
+          scanned_by?: string | null;
+          created_by?: string | null;
+          closed_by?: string | null;
+        },
+        [
+          {
+            foreignKeyName: "checkins_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkins_scanned_by_fkey";
+            columns: ["scanned_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkins_resource_id_fkey";
+            columns: ["resource_id"];
+            isOneToOne: false;
+            referencedRelation: "resources";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkins_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkins_closed_by_fkey";
+            columns: ["closed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ]
+      >;
+      resources: Table<
+        {
+          id: string;
+          type: "seat" | "room" | "table";
+          name: string;
+          capacity: number;
+          status: "available" | "maintenance";
+          active: boolean;
+          created_at: string;
+        },
+        {
+          id?: string;
+          type: "seat" | "room" | "table";
+          name: string;
+          capacity?: number;
+          status?: "available" | "maintenance";
+          active?: boolean;
+          created_at?: string;
+        },
+        {
+          id?: string;
+          type?: "seat" | "room" | "table";
+          name?: string;
+          capacity?: number;
+          status?: "available" | "maintenance";
+          active?: boolean;
+          created_at?: string;
+        }
+      >;
+      scan_logs: Table<
+        {
+          id: number;
+          created_at: string;
+          user_id: string | null;
+          customer_id: string | null;
+          input_hint: string | null;
+          result: "ok" | "blocked" | "expired" | "unknown";
+        },
+        {
+          id?: never;
+          created_at?: string;
+          user_id?: string | null;
+          customer_id?: string | null;
+          input_hint?: string | null;
+          result: "ok" | "blocked" | "expired" | "unknown";
+        },
+        {
+          id?: never;
+          created_at?: string;
+          user_id?: string | null;
+          customer_id?: string | null;
+          input_hint?: string | null;
+          result?: "ok" | "blocked" | "expired" | "unknown";
+        }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -273,9 +527,74 @@ export type Database = {
         Args: { p_user: string };
         Returns: undefined;
       };
+      create_customer: {
+        Args: {
+          p_first_name: string;
+          p_last_name: string;
+          p_birth_date: string;
+          p_student_type_id: string;
+          p_phone?: string | null;
+          p_expiry_date?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      update_customer: {
+        Args: {
+          p_customer: string;
+          p_first_name: string;
+          p_last_name: string;
+          p_birth_date: string;
+          p_student_type_id: string;
+          p_phone?: string | null;
+          p_expiry_date?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: undefined;
+      };
+      set_customer_status: {
+        Args: {
+          p_customer: string;
+          p_status: Database["public"]["Enums"]["customer_status"];
+        };
+        Returns: undefined;
+      };
+      soft_delete_customer: {
+        Args: { p_customer: string };
+        Returns: undefined;
+      };
+      reissue_qr_token: {
+        Args: { p_customer: string };
+        Returns: string;
+      };
+      get_customer_qr_token: {
+        Args: { p_customer: string };
+        Returns: string;
+      };
+      log_card_print: {
+        Args: { p_count: number };
+        Returns: undefined;
+      };
+      scan_customer: {
+        Args: { p_input: string };
+        Returns: Json;
+      };
+      check_in: {
+        Args: { p_customer: string; p_resource?: string | null };
+        Returns: Database["public"]["Tables"]["checkins"]["Row"];
+      };
+      check_out: {
+        Args: { p_checkin: number };
+        Returns: undefined;
+      };
+      get_resource_occupancy: {
+        Args: Record<string, never>;
+        Returns: { resource_id: string; people_inside: number }[];
+      };
     };
     Enums: {
       account_status: "pending" | "active" | "rejected" | "suspended";
+      customer_status: "active" | "blocked" | "expired";
     };
     CompositeTypes: Record<string, never>;
   };
