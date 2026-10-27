@@ -174,10 +174,7 @@ export function CustomerCardsPrintPage() {
     const entries = selectedCustomers.flatMap((customer) => {
       const token = tokens[customer.id];
       if (!token) return [];
-      const studentType =
-        i18n.language === "ar"
-          ? customer.student_type?.name_ar
-          : customer.student_type?.name_en;
+      const studentType = customer.student_type?.name ?? "";
       const card: CustomerCardDetails = {
         fullName: customer.full_name,
         studentType: studentType ?? "",
@@ -329,9 +326,7 @@ export function CustomerCardsPrintPage() {
                   <option value="">{t("customerCards.allStudentTypes")}</option>
                   {studentTypes.map((studentType) => (
                     <option key={studentType.id} value={studentType.id}>
-                      {i18n.language === "ar"
-                        ? studentType.name_ar
-                        : studentType.name_en}
+                      {studentType.name}
                     </option>
                   ))}
                 </select>

@@ -19,6 +19,7 @@
       "pendingAccounts": "Pending accounts",
       "customers": "Customers",
       "customerCards": "Print customer cards",
+      "scan": "Scanner",
       "employees": "Employees",
       "resources": "Resources",
       "roles": "Roles",
@@ -553,10 +554,162 @@
     },
     "import": {
       "title": "Customer import",
-      "description": "Import is not enabled yet. Customer imports will be added through a protected database function."
+      "description": "Import is not enabled yet. Customer imports will be added through a protected database function.",
+      "stepTitle": "Import customers",
+      "steps": {
+        "1": "Upload",
+        "2": "Map columns",
+        "3": "Preview",
+        "4": "Confirm"
+      },
+      "uploadTitle": "Upload a spreadsheet",
+      "uploadDescription": "Drag and drop a .xlsx or .csv file, or choose one from your computer.",
+      "chooseFile": "Choose file",
+      "downloadTemplate": "Download template",
+      "fileRules": "File size limit: {{maxSize}}. Maximum rows: {{maxRows}}.",
+      "historyLink": "Import history",
+      "mapTitle": "Map columns",
+      "fullNameOneColumn": "Full name in one column",
+      "chooseColumn": "Choose a column",
+      "unspecified": "Unspecified",
+      "dateFormat": "Date format",
+      "previewStep": "Preview rows",
+      "back": "Back",
+      "previewTitle": "Preview and validate",
+      "previewHelp": "Only valid rows are kept for import.",
+      "updateExisting": "Update existing customers when found",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "duplicates": "Duplicates",
+      "validShort": "Valid",
+      "invalidShort": "Invalid",
+      "duplicateShort": "Duplicate",
+      "status": "Status",
+      "confirmImport": "Confirm import",
+      "importing": "Importing…",
+      "completeTitle": "Import completed",
+      "completedMessage": "Your customer import is finished.",
+      "downloadErrors": "Download error report (CSV)",
+      "printCards": "Print cards for these customers",
+      "result": {
+        "created": "Created",
+        "updated": "Updated",
+        "skipped": "Skipped",
+        "failed": "Failed",
+        "total": "Total"
+      },
+      "fields": {
+        "firstName": "First name",
+        "lastName": "Last name",
+        "birthDate": "Birth date",
+        "studentType": "Student type",
+        "phone": "Phone",
+        "first_name": "First name",
+        "last_name": "Last name",
+        "birth_date": "Birth date",
+        "student_type": "Student type",
+        "full_name": "Full name",
+        "phoneField": "Phone"
+      },
+      "errors": {
+        "fileSize": "The file is larger than 5 MB.",
+        "fileType": "Only .xlsx, .xls, and .csv files are supported.",
+        "empty": "The file is empty or the sheet is blank.",
+        "parse": "The file could not be parsed in the browser.",
+        "mapping": "Map the required columns before continuing.",
+        "studentTypes": "Student types could not be loaded.",
+        "noValidRows": "No valid rows are ready to import.",
+        "importFailed": "The import request could not be completed."
+      },
+      "historyTitle": "Import history",
+      "historyError": "Import history could not be loaded.",
+      "historyUser": "User",
+      "historyWhen": "When",
+      "historyFile": "File",
+      "historyCounts": "Counts",
+      "historyStatus": "Status",
+      "actions": "Actions",
+      "loadingHistory": "Loading imports…",
+      "historyEmpty": "No imports have been created yet.",
+      "rollback": "Roll back",
+      "rollbackConfirm": "Rollback this import? This hides the customers created by that import.",
+      "rollbackError": "The rollback request could not be completed.",
+      "rolledBack": "Rolled back",
+      "active": "Active",
+      "rollingBack": "Rolling back…",
+      "totalRecords": "Total rows",
+      "backToWizard": "Back to import"
     },
     "print": {
       "qrCode": "Customer QR code"
+    }
+  },
+  "scan": {
+    "camera": {
+      "title": "Camera scan",
+      "scanning": "Scanning…",
+      "permissionDenied": "Camera permission was denied. Allow camera access to scan a customer card, or use the manual field.",
+      "unsupported": "This browser cannot use the camera for scanning. Please use the manual field instead."
+    },
+    "manual": {
+      "label": "Enter code",
+      "placeholder": "Enter code, e.g. ZT-000123"
+    },
+    "sidePanels": {
+      "insideNow": "Inside now",
+      "lastScans": "Last scans"
+    },
+    "result": {
+      "ok": "Entry allowed",
+      "blocked": "Blocked",
+      "expired": "Card expired",
+      "unknown": "Card not recognized"
+    },
+    "messages": {
+      "blocked": "This customer is blocked and cannot enter.",
+      "expired": "This card has expired and is no longer valid.",
+      "unknown": "This card is not recognized. Please verify the code and try again."
+    },
+    "status": {
+      "alreadyInside": "Already inside"
+    },
+    "fields": {
+      "name": "Customer name",
+      "code": "Customer code",
+      "birthDate": "Birth date",
+      "studentType": "Student type",
+      "resource": "Resource",
+      "selectResource": "Select a resource",
+      "unknownType": "Unknown",
+      "unknownCustomer": "Unknown customer",
+      "noResource": "No resource",
+      "timeEntered": "Time entered"
+    },
+    "actions": {
+      "checkIn": "Check in",
+      "checkOut": "Check out",
+      "newOrder": "New order",
+      "submit": "Submit",
+      "submitting": "Submitting…",
+      "mute": "Mute",
+      "unmute": "Sound on"
+    },
+    "errors": {
+      "general": "The scan could not be completed. Please try again.",
+      "resourceFull": "This resource is full.",
+      "alreadyCheckedIn": "This customer is already checked in.",
+      "customerNotAllowed": "This customer is not allowed to enter."
+    },
+    "toast": {
+      "checkedIn": "Check-in completed.",
+      "checkedOut": "Check-out completed."
+    },
+    "empty": {
+      "insideNow": "No one is inside right now.",
+      "lastScans": "No scans yet for this session."
+    },
+    "notifications": {
+      "newScan": "New scan"
     }
   },
   "settings": {
@@ -735,6 +888,10 @@
     "resources": {
       "title": "Resources",
       "description": "Manage seats, rooms, and tables and monitor current occupancy."
+    },
+    "scan": {
+      "title": "Customer scanner",
+      "description": "Scan customer cards and manage check-ins in real time."
     },
     "notFound": {
       "title": "Page not found",

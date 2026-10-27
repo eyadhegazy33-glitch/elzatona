@@ -14,8 +14,8 @@ export type CustomerCardRecord = {
   import_id: string | null;
   student_type: {
     id: string;
-    name_en: string;
-    name_ar: string;
+    name: string;
+    active: boolean;
   } | null;
 };
 
@@ -40,11 +40,12 @@ export async function getCustomerCardRecords(filters: {
   let query = client
     .from("customers")
     .select(
-      "id, code, first_name, last_name, full_name, birth_date, student_type_id, status, created_at, import_id, student_type:student_types(id, name_en, name_ar)",
+      "id, code, first_name, last_name, birth_date, student_type_id, status, created_at, import_id, student_type:student_types(id, name, active)",
       { count: "exact" },
     )
     .is("deleted_at", null)
-    .order("full_name")
+    .order("last_name")
+    .order("first_name")
     .order("id");
 
   if (filters.studentTypeId) {
@@ -63,7 +64,7 @@ export async function getCustomerCardRecords(filters: {
   if (filters.search.trim()) {
     const term = escapeSearchTerm(filters.search.trim());
     query = query.or(
-      `full_name.ilike.%${term}%,code.ilike.%${term}%`,
+      `first_name.ilike.%${term}%,last_name.ilike.%${term}%,code.ilike.%${term}%`,
     );
   }
 
@@ -78,9 +79,13 @@ export async function getCustomerCardRecords(filters: {
     );
     if (error) throw error;
     total = count ?? 0;
-    records.push(...data);
-    if (data.length < pageSize) break;
-    offset += data.length;
+    const normalized = ((data ?? []) as any[]).map((row) => ({
+      ...row,
+      full_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim(),
+    })) as CustomerCardRecord[];
+    records.push(...normalized);
+    if ((data ?? []).length < pageSize) break;
+    offset += (data ?? []).length;
   }
 
   return records;

@@ -6,6 +6,7 @@ import {
   Menu,
   MapPinned,
   Printer,
+  ScanLine,
   Settings,
   Shield,
   UsersRound,
@@ -47,6 +48,12 @@ const navigationItems: NavigationItem[] = [
     path: "/admin/pending-accounts",
     permission: "accounts.approve",
     icon: ClipboardCheck,
+  },
+  {
+    labelKey: "layout.navigation.scan",
+    path: "/scan",
+    permission: "scanner.use",
+    icon: ScanLine,
   },
   {
     labelKey: "layout.navigation.customers",
@@ -102,6 +109,7 @@ export function AppLayout() {
   const isRtl = i18n.dir() === "rtl";
   const isApplicationRoute =
     location.pathname === "/dashboard" ||
+    location.pathname === "/scan" ||
     location.pathname.startsWith("/admin/") ||
     location.pathname === "/customers" ||
     location.pathname.startsWith("/customers/");

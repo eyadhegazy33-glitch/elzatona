@@ -125,14 +125,8 @@ export function CustomersPage() {
   }, [refresh]);
 
   const studentTypeNames = useMemo(
-    () =>
-      new Map(
-        studentTypes.map((type) => [
-          type.id,
-          i18n.dir() === "rtl" ? type.name_ar : type.name_en,
-        ]),
-      ),
-    [i18n, studentTypes],
+    () => new Map(studentTypes.map((type) => [type.id, type.name])),
+    [studentTypes],
   );
 
   const start = total === 0 ? 0 : page * pageSize + 1;
@@ -151,14 +145,13 @@ export function CustomersPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {canImport && (
-            <button
+            <Link
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-              onClick={() => setImportInfoOpen(true)}
-              type="button"
+              to="/customers/import"
             >
               <Upload aria-hidden="true" size={16} />
               {t("customers.actions.import")}
-            </button>
+            </Link>
           )}
           {canPrint && (
             <Link
@@ -248,9 +241,7 @@ export function CustomersPage() {
             <option value="">{t("customers.filters.allStudentTypes")}</option>
             {studentTypes.map((studentType) => (
               <option key={studentType.id} value={studentType.id}>
-                {i18n.dir() === "rtl"
-                  ? studentType.name_ar
-                  : studentType.name_en}
+                {studentType.name}
               </option>
             ))}
           </select>
@@ -263,9 +254,9 @@ export function CustomersPage() {
             value={sort}
           >
             <option value="created_at">{t("customers.sort.created")}</option>
-            <option value="full_name">{t("customers.sort.name")}</option>
+            <option value="first_name">{t("customers.sort.name")}</option>
             <option value="code">{t("customers.sort.code")}</option>
-            <option value="expiry_date">{t("customers.sort.expiry")}</option>
+            <option value="expires_on">{t("customers.sort.expiry")}</option>
           </select>
         </label>
         <button
@@ -342,8 +333,8 @@ export function CustomersPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      {customer.expiry_date
-                        ? formatDate(customer.expiry_date, dateLocale)
+                      {customer.expires_on
+                        ? formatDate(customer.expires_on, dateLocale)
                         : t("customers.values.noExpiry")}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">

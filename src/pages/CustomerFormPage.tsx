@@ -42,7 +42,7 @@ function asDateInput(value: string | null | undefined): string {
 }
 
 export function CustomerFormPage() {
-  const { i18n, t } = useTranslation();
+  const { t } = useTranslation();
   const { profile } = useAuth();
   const navigate = useNavigate();
   const { customerId } = useParams();
@@ -158,7 +158,7 @@ export function CustomerFormPage() {
           birthDate: asDateInput(customer.birth_date),
           studentTypeId: customer.student_type_id,
           phone: customer.phone ?? "",
-          expiryDate: asDateInput(customer.expiry_date),
+          expiryDate: asDateInput(customer.expires_on),
           notes: customer.notes ?? "",
         });
       })
@@ -344,9 +344,7 @@ export function CustomerFormPage() {
               </option>
               {studentTypes.map((studentType) => (
                 <option key={studentType.id} value={studentType.id}>
-                  {i18n.dir() === "rtl"
-                    ? studentType.name_ar
-                    : studentType.name_en}
+                  {studentType.name}
                 </option>
               ))}
             </select>

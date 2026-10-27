@@ -3,6 +3,8 @@ import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
 import { CustomerFormPage } from "../pages/CustomerFormPage";
 import { CustomerCardsPrintPage } from "../pages/CustomerCardsPrintPage";
+import { CustomerImportHistoryPage } from "../pages/CustomerImportHistoryPage";
+import { CustomerImportPage } from "../pages/CustomerImportPage";
 import { CustomerProfilePage } from "../pages/CustomerProfilePage";
 import { CustomersPage } from "../pages/CustomersPage";
 import { EmployeesPage } from "../pages/EmployeesPage";
@@ -15,6 +17,7 @@ import { RegisterPage } from "../pages/RegisterPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { ResourcesPage } from "../pages/ResourcesPage";
 import { RolesPage } from "../pages/RolesPage";
+import { ScanPage } from "../pages/ScanPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import {
   NotAllowedPage,
@@ -45,6 +48,17 @@ export const router = createBrowserRouter([
           {
             element: <PermissionRoute permission="dashboard.view" />,
             children: [{ path: "/dashboard", element: <DashboardPage /> }],
+          },
+          {
+            element: <PermissionRoute permission="scanner.use" />,
+            children: [{ path: "/scan", element: <ScanPage /> }],
+          },
+          {
+            element: <PermissionRoute permission="customers.import" />,
+            children: [
+              { path: "/customers/import", element: <CustomerImportPage /> },
+              { path: "/customers/import/history", element: <CustomerImportHistoryPage /> },
+            ],
           },
           {
             element: <PermissionRoute permission="customers.cards" />,

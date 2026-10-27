@@ -19,6 +19,7 @@
       "pendingAccounts": "الحسابات المعلقة",
       "customers": "العملاء",
       "customerCards": "طباعة بطاقات العملاء",
+      "scan": "الماسح",
       "employees": "الموظفون",
       "resources": "الموارد",
       "roles": "الأدوار",
@@ -553,10 +554,162 @@
     },
     "import": {
       "title": "استيراد العملاء",
-      "description": "الاستيراد غير مفعّل بعد. ستتم إضافة استيراد العملاء عبر وظيفة قاعدة بيانات محمية."
+      "description": "الاستيراد غير مفعّل بعد. ستتم إضافة استيراد العملاء عبر وظيفة قاعدة بيانات محمية.",
+      "stepTitle": "استيراد العملاء",
+      "steps": {
+        "1": "رفع الملف",
+        "2": "تخطيط الأعمدة",
+        "3": "المعاينة",
+        "4": "التأكيد"
+      },
+      "uploadTitle": "رفع جدول Excel",
+      "uploadDescription": "اسحب ملفًا بصيغة .xlsx أو .csv أو اختره من جهازك.",
+      "chooseFile": "اختر الملف",
+      "downloadTemplate": "تحميل القالب",
+      "fileRules": "حد حجم الملف: {{maxSize}}. الحد الأقصى للصفوف: {{maxRows}}.",
+      "historyLink": "سجل الاستيراد",
+      "mapTitle": "تخطيط الأعمدة",
+      "fullNameOneColumn": "اسم كامل في عمود واحد",
+      "chooseColumn": "اختر عمودًا",
+      "unspecified": "غير محدد",
+      "dateFormat": "تنسيق التاريخ",
+      "previewStep": "معاينة الصفوف",
+      "back": "رجوع",
+      "previewTitle": "مراجعة البيانات والتحقق",
+      "previewHelp": "يتم الاحتفاظ بالصفوف الصحيحة فقط للاستيراد.",
+      "updateExisting": "تحديث العملاء الموجودين عند العثور عليهم",
+      "valid": "صالح",
+      "invalid": "غير صالح",
+      "duplicates": "التكرارات",
+      "validShort": "صالح",
+      "invalidShort": "غير صالح",
+      "duplicateShort": "مكرر",
+      "status": "الحالة",
+      "confirmImport": "تأكيد الاستيراد",
+      "importing": "جارٍ الاستيراد…",
+      "completeTitle": "اكتمل الاستيراد",
+      "completedMessage": "تم إكمال استيراد العملاء بنجاح.",
+      "downloadErrors": "تحميل تقرير الأخطاء (CSV)",
+      "printCards": "طباعة بطاقات هؤلاء العملاء",
+      "result": {
+        "created": "المُنشأة",
+        "updated": "المحدّثة",
+        "skipped": "المتجاوزة",
+        "failed": "الفاشلة",
+        "total": "المجموع"
+      },
+      "fields": {
+        "firstName": "الاسم الأول",
+        "lastName": "اسم العائلة",
+        "birthDate": "تاريخ الميلاد",
+        "studentType": "نوع الطالب",
+        "phone": "الهاتف",
+        "first_name": "الاسم الأول",
+        "last_name": "اسم العائلة",
+        "birth_date": "تاريخ الميلاد",
+        "student_type": "نوع الطالب",
+        "full_name": "الاسم الكامل",
+        "phoneField": "الهاتف"
+      },
+      "errors": {
+        "fileSize": "حجم الملف أكبر من 5 ميغابايت.",
+        "fileType": "يُسمح فقط بملفات .xlsx و .xls و .csv.",
+        "empty": "الملف فارغ أو الورقة خالية.",
+        "parse": "تعذر تحليل الملف في المتصفح.",
+        "mapping": "قم بتخطيط الأعمدة المطلوبة قبل المتابعة.",
+        "studentTypes": "تعذر تحميل أنواع الطلاب.",
+        "noValidRows": "لا توجد صفوف صالحة جاهزة للاستيراد.",
+        "importFailed": "تعذر إكمال طلب الاستيراد."
+      },
+      "historyTitle": "سجل الاستيراد",
+      "historyError": "تعذر تحميل سجل الاستيراد.",
+      "historyUser": "المستخدم",
+      "historyWhen": "الوقت",
+      "historyFile": "الملف",
+      "historyCounts": "الإحصاءات",
+      "historyStatus": "الحالة",
+      "actions": "الإجراءات",
+      "loadingHistory": "جارٍ تحميل السجل…",
+      "historyEmpty": "لا توجد عمليات استيراد بعد.",
+      "rollback": "تراجع",
+      "rollbackConfirm": "هل تريد التراجع عن هذا الاستيراد؟ سيُخفي هذا العملاء الذين تم إنشاؤهم به.",
+      "rollbackError": "تعذر إكمال طلب التراجع.",
+      "rolledBack": "تم التراجع",
+      "active": "نشط",
+      "rollingBack": "جارٍ التراجع…",
+      "totalRecords": "إجمالي الصفوف",
+      "backToWizard": "العودة إلى الاستيراد"
     },
     "print": {
       "qrCode": "رمز QR الخاص بالعميل"
+    }
+  },
+  "scan": {
+    "camera": {
+      "title": "مسح الكاميرا",
+      "scanning": "جارٍ المسح…",
+      "permissionDenied": "تم رفض صلاحية الكاميرا. اسمح بالوصول إلى الكاميرا لمسح بطاقة العميل أو استخدم الحقل اليدوي.",
+      "unsupported": "لا يدعم هذا المتصفح استخدام الكاميرا للمسح. استخدم الحقل اليدوي بدلًا من ذلك."
+    },
+    "manual": {
+      "label": "أدخل الرمز",
+      "placeholder": "أدخل الرمز مثل ZT-000123"
+    },
+    "sidePanels": {
+      "insideNow": "الداخل الآن",
+      "lastScans": "آخر المسحيات"
+    },
+    "result": {
+      "ok": "الإذن بالدخول",
+      "blocked": "محظور",
+      "expired": "انتهت البطاقة",
+      "unknown": "البطاقة غير معروفة"
+    },
+    "messages": {
+      "blocked": "هذا العميل محظور ولا يمكنه الدخول.",
+      "expired": "هذه البطاقة منتهية ولا تزال صالحة.",
+      "unknown": "هذه البطاقة غير معروفة. يرجى التحقق من الرمز والمحاولة مرة أخرى."
+    },
+    "status": {
+      "alreadyInside": "بالفعل داخل"
+    },
+    "fields": {
+      "name": "اسم العميل",
+      "code": "رمز العميل",
+      "birthDate": "تاريخ الميلاد",
+      "studentType": "نوع الطالب",
+      "resource": "المورد",
+      "selectResource": "اختر موردًا",
+      "unknownType": "غير معروف",
+      "unknownCustomer": "عميل غير معروف",
+      "noResource": "لا يوجد مورد",
+      "timeEntered": "وقت الدخول"
+    },
+    "actions": {
+      "checkIn": "تسجيل الدخول",
+      "checkOut": "تسجيل الخروج",
+      "newOrder": "طلب جديد",
+      "submit": "إرسال",
+      "submitting": "جارٍ الإرسال…",
+      "mute": "كتم",
+      "unmute": "الصوت مفعل"
+    },
+    "errors": {
+      "general": "تعذر إكمال المسح. يرجى المحاولة مرة أخرى.",
+      "resourceFull": "هذا المورد ممتلئ.",
+      "alreadyCheckedIn": "هذا العميل مسجل دخول بالفعل.",
+      "customerNotAllowed": "هذا العميل غير مسموح له بالدخول."
+    },
+    "toast": {
+      "checkedIn": "تم تسجيل الدخول.",
+      "checkedOut": "تم تسجيل الخروج."
+    },
+    "empty": {
+      "insideNow": "لا يوجد أحد داخل الآن.",
+      "lastScans": "لا توجد مسحيات بعد في هذه الجلسة."
+    },
+    "notifications": {
+      "newScan": "مسح جديد"
     }
   },
   "settings": {
@@ -735,6 +888,10 @@
     "resources": {
       "title": "الموارد",
       "description": "إدارة المقاعد والغرف والطاولات ومتابعة الإشغال الحالي."
+    },
+    "scan": {
+      "title": "ماسح العملاء",
+      "description": "اقرأ بطاقات العملاء وأدر تسجيلات الوصول في الوقت الفعلي."
     },
     "notFound": {
       "title": "الصفحة غير موجودة",

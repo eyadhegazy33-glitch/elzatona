@@ -161,6 +161,9 @@ export function CustomerProfilePage() {
         return;
       } else {
         const token = await reissueQrToken(customer.id);
+        if (!token) {
+          throw new Error("Missing QR token");
+        }
         const qrDataUrl = await QRCode.toDataURL(token, {
           errorCorrectionLevel: "M",
           margin: 4,
@@ -198,8 +201,8 @@ export function CustomerProfilePage() {
             studentType == null
               ? ""
               : i18n.dir() === "rtl"
-                ? studentType.name_ar
-                : studentType.name_en,
+                ? studentType.name
+                : studentType.name,
         },
       ]);
     } catch {
@@ -411,8 +414,8 @@ export function CustomerProfilePage() {
                   value={
                     customer.student_type
                       ? i18n.dir() === "rtl"
-                        ? customer.student_type.name_ar
-                        : customer.student_type.name_en
+                        ? customer.student_type.name
+                        : customer.student_type.name
                       : "—"
                   }
                 />
@@ -420,8 +423,8 @@ export function CustomerProfilePage() {
                 <Detail
                   label={t("customers.fields.expiry")}
                   value={
-                    customer.expiry_date
-                      ? formatDate(customer.expiry_date, dateLocale)
+                    customer.expires_on
+                      ? formatDate(customer.expires_on, dateLocale)
                       : t("customers.values.noExpiry")
                   }
                 />
