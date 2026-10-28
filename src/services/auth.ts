@@ -18,15 +18,16 @@ export type MyProfile = {
   last_name: string;
   phone_number?: string | null;
   email: string;
-  requested_role_id: string | null;
+  requested_role_id?: string | null;
   role_id: string | null;
   status: AccountStatus;
   reject_reason: string | null;
-  approved_by: string | null;
-  approved_at: string | null;
-  deleted_at: string | null;
-  created_at: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  deleted_at?: string | null;
+  created_at?: string;
   role: { name: string } | null;
+  permissions: string[];
 };
 
 export class AuthServiceError extends Error {
@@ -232,20 +233,16 @@ export async function updatePassword(password: string): Promise<void> {
 export async function getMyProfile(
   userId?: string,
 ): Promise<MyProfile | null> {
-  if (userId) {
-    return getProfileForUser(userId);
-  }
+  if (userId) return getProfileForUser(userId);
 
   const {
-    data: { user },
-    error: userError,
-  } = await getSupabaseClient().auth.getUser();
-
-  if (userError) {
-    throw toAuthServiceError(userError);
+    data: { session },
+    error,
+  } = await getSupabaseClient().auth.getSession();
+  if (error) {
+    throw new AuthServiceError("auth.errors.generic", { cause: error });
   }
-
-  return user ? getProfileForUser(user.id) : null;
+  return session ? getProfileForUser(session.user.id) : null;
 }
 
 export function getProfileForUser(userId: string): Promise<MyProfile | null> {
@@ -272,15 +269,14 @@ export function getProfileForUser(userId: string): Promise<MyProfile | null> {
 }
 
 async function fetchProfileForUser(userId: string): Promise<MyProfile | null> {
-  const { data, error } = await getSupabaseClient()
-    .from("profiles")
-    .select(
-      "id, first_name, last_name, email, requested_role_id, role_id, status, reject_reason, approved_by, approved_at, deleted_at, created_at, role:roles!profiles_role_id_fkey(name)",
-    )
-    .eq("id", userId)
-    .maybeSingle();
+  const { data, error } = await getSupabaseClient().rpc("get_my_access");
 
   if (error) {
+    if (("status" in error && error.status === 401) || error.code === "401") {
+      throw new AuthServiceError("auth.errors.profileUnavailable", {
+        cause: error,
+      });
+    }
     throw new AuthServiceError("auth.errors.profileUnavailable", {
       cause: error,
     });
@@ -290,12 +286,21 @@ async function fetchProfileForUser(userId: string): Promise<MyProfile | null> {
     return null;
   }
 
-  const row = data as unknown as Omit<MyProfile, "role"> & {
-    role: { name: string } | { name: string }[] | null;
+  const row = data as unknown as {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    status: AccountStatus;
+    reject_reason: string | null;
+    role_id: string | null;
+    role_name: string | null;
+    permissions: string[] | null;
   };
-
+  if (!row.id || row.id !== userId || !row.status) return null;
   return {
     ...row,
-    role: Array.isArray(row.role) ? (row.role[0] ?? null) : row.role,
+    role: row.role_name ? { name: row.role_name } : null,
+    permissions: Array.isArray(row.permissions) ? row.permissions : [],
   };
 }

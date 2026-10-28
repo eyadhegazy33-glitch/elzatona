@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -18,18 +19,118 @@ import {
   type MyProfile,
 } from "../services/auth";
 
+type AuthStatus = "initializing" | "ready" | "signed_out";
+type SignedOutMessage = { messageKey: string; reason?: string } | null;
+type CachedAccess = { cachedAt: number; profile: MyProfile };
+
 type AuthContextValue = {
   session: Session | null;
   profile: MyProfile | null;
-  loading: boolean;
+  permissions: string[];
+  status: AuthStatus;
   error: AuthServiceError | null;
+  signedOutMessage: SignedOutMessage;
   signIn: typeof signIn;
   signUp: typeof signUp;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<MyProfile | null>;
 };
 
+const ACCESS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const ACCESS_CACHE_PREFIX = "zatona.access.";
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+let sessionRequest: ReturnType<
+  ReturnType<typeof getSupabaseClient>["auth"]["getSession"]
+> | null = null;
+
+function getSessionOnce() {
+  sessionRequest ??= getSupabaseClient().auth.getSession();
+  return sessionRequest;
+}
+
+function cacheKey(userId: string) {
+  return `${ACCESS_CACHE_PREFIX}${userId}`;
+}
+
+function readCachedAccess(userId: string): CachedAccess | null {
+  try {
+    const raw = window.localStorage.getItem(cacheKey(userId));
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedAccess;
+    if (
+      cached.profile?.id !== userId ||
+      cached.profile.status !== "active" ||
+      !Array.isArray(cached.profile.permissions) ||
+      !Number.isFinite(cached.cachedAt) ||
+      cached.cachedAt > Date.now() ||
+      Date.now() - cached.cachedAt >= ACCESS_CACHE_TTL_MS
+    ) {
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAccess(profile: MyProfile) {
+  try {
+    window.localStorage.setItem(
+      cacheKey(profile.id),
+      JSON.stringify({ cachedAt: Date.now(), profile } satisfies CachedAccess),
+    );
+  } catch {
+    // Access caching is optional; the live RPC remains authoritative.
+  }
+}
+
+function clearCachedAccess(userId: string | null | undefined) {
+  if (!userId) return;
+  try {
+    window.localStorage.removeItem(cacheKey(userId));
+  } catch {
+    // The in-memory auth state is still cleared if storage is unavailable.
+  }
+}
+
+function clearOtherAccessCaches(userId?: string) {
+  try {
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (
+        key?.startsWith(ACCESS_CACHE_PREFIX) &&
+        key !== (userId ? cacheKey(userId) : null)
+      ) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Access caching is optional; the live RPC remains authoritative.
+  }
+}
+
+function isUnauthorized(cause: unknown): boolean {
+  if (!cause || typeof cause !== "object") return false;
+  if ("status" in cause && cause.status === 401) return true;
+  if ("cause" in cause) return isUnauthorized(cause.cause);
+  return false;
+}
+
+function revokedMessage(profile: MyProfile | null): SignedOutMessage {
+  if (profile?.status === "rejected") {
+    return {
+      messageKey: profile.reject_reason
+        ? "login.accountRejectedWithReason"
+        : "login.accountRejected",
+      reason: profile.reject_reason ?? undefined,
+    };
+  }
+  if (profile?.status === "suspended") {
+    return { messageKey: "auth.messages.accountSuspended" };
+  }
+  return { messageKey: "auth.errors.profileUnavailable" };
+}
 
 type AuthProviderProps = {
   children: ReactNode;
@@ -38,89 +139,112 @@ type AuthProviderProps = {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<MyProfile | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(true);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const [status, setStatus] = useState<AuthStatus>("initializing");
   const [error, setError] = useState<AuthServiceError | null>(null);
+  const [signedOutMessage, setSignedOutMessage] =
+    useState<SignedOutMessage>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const userIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setError(new AuthServiceError("auth.errors.supabaseNotConfigured"));
-      setSessionLoading(false);
-      return;
-    }
-
-    let authStateChanged = false;
-    let mounted = true;
-
-    const {
-      data: { subscription },
-    } = getSupabaseClient().auth.onAuthStateChange((_event, nextSession) => {
-      authStateChanged = true;
-      setSession(nextSession);
-      setProfileLoading(Boolean(nextSession));
-      setSessionLoading(false);
-      setError(null);
-    });
-
-    void getSupabaseClient()
-      .auth.getSession()
-      .then(({ data, error: sessionError }) => {
-        if (!mounted || authStateChanged) {
-          return;
-        }
-
-        if (sessionError) {
-          setError(
-            new AuthServiceError("auth.errors.generic", { cause: sessionError }),
-          );
-        }
-
-        setSession(data.session);
-        setProfileLoading(Boolean(data.session));
-        setSessionLoading(false);
-      })
-      .catch((cause: unknown) => {
-        if (!mounted || authStateChanged) {
-          return;
-        }
-
-        setError(
-          new AuthServiceError("auth.errors.generic", {
-            cause: cause instanceof Error ? cause : undefined,
-          }),
-        );
-        setSessionLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+  const clearState = useCallback((message: SignedOutMessage = null) => {
+    clearCachedAccess(userIdRef.current);
+    clearOtherAccessCaches();
+    userIdRef.current = null;
+    sessionRef.current = null;
+    setSession(null);
+    setProfile(null);
+    setError(null);
+    setSignedOutMessage(message);
+    setStatus("signed_out");
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAccess = useCallback(
+    async (nextSession: Session, useCache: boolean) => {
+      const userId = nextSession.user.id;
+      clearOtherAccessCaches(userId);
+      const previousUserId = userIdRef.current;
+      if (previousUserId && previousUserId !== userId) {
+        clearCachedAccess(previousUserId);
+        setProfile(null);
+      }
+      userIdRef.current = userId;
+      sessionRef.current = nextSession;
+      setSession(nextSession);
+      setSignedOutMessage(null);
+      setError(null);
 
-    if (!session) {
-      setProfile(null);
-      setProfileLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
+      const cached = useCache ? readCachedAccess(userId) : null;
+      if (cached) {
+        setProfile(cached.profile);
+        setStatus("ready");
+      } else {
+        setProfile(null);
+        setStatus("initializing");
+      }
 
-    setProfile(null);
-    setProfileLoading(true);
-    setError(null);
-
-    void getMyProfile(session.user.id)
-      .then((nextProfile) => {
-        if (!cancelled) {
-          setProfile(nextProfile);
+      try {
+        const freshProfile = await getMyProfile(userId);
+        if (userIdRef.current !== userId) return;
+        if (
+          !freshProfile ||
+          freshProfile.deleted_at ||
+          freshProfile.status === "rejected" ||
+          freshProfile.status === "suspended"
+        ) {
+          clearCachedAccess(userId);
+          const message = revokedMessage(freshProfile);
+          setSignedOutMessage(message);
+          setProfile(null);
+          setSession(null);
+          sessionRef.current = null;
+          userIdRef.current = null;
+          setStatus("signed_out");
+          try {
+            await signOut();
+          } catch (signOutError) {
+            setError(
+              signOutError instanceof AuthServiceError
+                ? signOutError
+                : new AuthServiceError("auth.errors.signOutFailed", {
+                    cause:
+                      signOutError instanceof Error ? signOutError : undefined,
+                  }),
+            );
+          }
+          setSignedOutMessage(message);
+          return;
         }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
+
+        if (freshProfile.status === "active") writeCachedAccess(freshProfile);
+        else clearCachedAccess(userId);
+        setProfile(freshProfile);
+        setStatus("ready");
+      } catch (cause: unknown) {
+        if (userIdRef.current !== userId) return;
+        if (isUnauthorized(cause)) {
+          clearCachedAccess(userId);
+          setProfile(null);
+          setSession(null);
+          sessionRef.current = null;
+          userIdRef.current = null;
+          setSignedOutMessage({ messageKey: "auth.errors.profileUnavailable" });
+          setStatus("signed_out");
+          try {
+            await signOut();
+          } catch (signOutError) {
+            setError(
+              signOutError instanceof AuthServiceError
+                ? signOutError
+                : new AuthServiceError("auth.errors.signOutFailed", {
+                    cause:
+                      signOutError instanceof Error ? signOutError : undefined,
+                  }),
+            );
+          }
+          setSignedOutMessage({ messageKey: "auth.errors.profileUnavailable" });
+          return;
+        }
+        if (!cached) {
           setError(
             cause instanceof AuthServiceError
               ? cause
@@ -129,56 +253,124 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 }),
           );
         }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setProfileLoading(false);
+        if (!cached) setProfile(null);
+        setStatus("ready");
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setError(new AuthServiceError("auth.errors.supabaseNotConfigured"));
+      setStatus("signed_out");
+      return;
+    }
+
+    let mounted = true;
+    let authEventReceived = false;
+    const client = getSupabaseClient();
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "TOKEN_REFRESHED") return;
+      if (event === "SIGNED_IN" && nextSession?.user.id === userIdRef.current) {
+        return;
+      }
+      authEventReceived = true;
+      if (event === "SIGNED_OUT" || !nextSession) {
+        clearState();
+        return;
+      }
+
+      queueMicrotask(() => {
+        if (mounted) void loadAccess(nextSession, true);
+      });
+    });
+
+    void getSessionOnce()
+      .then(({ data, error: sessionError }) => {
+        if (!mounted || authEventReceived) return;
+        if (sessionError) {
+          setError(
+            new AuthServiceError("auth.errors.generic", { cause: sessionError }),
+          );
+          setStatus("signed_out");
+          return;
         }
+        if (!data.session) {
+          clearState();
+          return;
+        }
+        void loadAccess(data.session, true);
+      })
+      .catch((cause: unknown) => {
+        if (!mounted || authEventReceived) return;
+        setError(
+          new AuthServiceError("auth.errors.generic", {
+            cause: cause instanceof Error ? cause : undefined,
+          }),
+        );
+        setStatus("signed_out");
       });
 
     return () => {
-      cancelled = true;
+      mounted = false;
+      subscription.unsubscribe();
     };
-  }, [session?.user.id]);
+  }, [clearState, loadAccess]);
 
   const handleSignOut = useCallback(async () => {
     await signOut();
-    setSession(null);
-    setProfile(null);
-    setError(null);
-  }, []);
+    clearState();
+  }, [clearState]);
 
   const refreshProfile = useCallback(async () => {
-    if (!session) {
+    const currentSession = sessionRef.current;
+    if (!currentSession) {
       setProfile(null);
       return null;
     }
-
-    setProfileLoading(true);
-    setError(null);
-
-    try {
-      const nextProfile = await getMyProfile(session.user.id);
-      setProfile(nextProfile);
-      return nextProfile;
-    } catch (cause) {
-      if (cause instanceof AuthServiceError) {
-        throw cause;
+    const refreshed = await getMyProfile(currentSession.user.id);
+    if (
+      !refreshed ||
+      refreshed.deleted_at ||
+      refreshed.status === "rejected" ||
+      refreshed.status === "suspended"
+    ) {
+      const message = revokedMessage(refreshed);
+      clearState(message);
+      try {
+        await signOut();
+      } catch (cause) {
+        setError(
+          cause instanceof AuthServiceError
+            ? cause
+            : new AuthServiceError("auth.errors.signOutFailed", {
+                cause: cause instanceof Error ? cause : undefined,
+              }),
+        );
       }
-      throw new AuthServiceError("auth.errors.profileUnavailable", {
-        cause: cause instanceof Error ? cause : undefined,
-      });
-    } finally {
-      setProfileLoading(false);
+      setSignedOutMessage(message);
+      return null;
     }
-  }, [session]);
+    if (refreshed.status === "active") writeCachedAccess(refreshed);
+    else clearCachedAccess(refreshed.id);
+    setProfile(refreshed);
+    setError(null);
+    setStatus("ready");
+    return refreshed;
+  }, [clearState]);
 
+  const permissions = profile?.permissions ?? [];
   const contextValue = useMemo<AuthContextValue>(
     () => ({
       session,
       profile,
-      loading: sessionLoading || profileLoading,
+      permissions,
+      status,
       error,
+      signedOutMessage,
       signIn,
       signUp,
       signOut: handleSignOut,
@@ -187,9 +379,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [
       session,
       profile,
-      sessionLoading,
-      profileLoading,
+      permissions,
+      status,
       error,
+      signedOutMessage,
       handleSignOut,
       refreshProfile,
     ],

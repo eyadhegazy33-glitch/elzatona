@@ -14,12 +14,12 @@ import { useAuth } from "../hooks/useAuth";
 import {
   getCustomers,
   getActiveStudentTypes,
+  getStudentTypeName,
   type Customer,
   type CustomerSort,
   type CustomerStatus,
   type StudentType,
 } from "../services/customers";
-import { getRolePermissionKeys } from "../services/roles";
 
 const pageSize = 25;
 const inputClassName =
@@ -33,10 +33,9 @@ function formatDate(value: string, language: string): string {
 
 export function CustomersPage() {
   const { i18n, t } = useTranslation();
-  const { profile } = useAuth();
+  const { permissions } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [querySearch, setQuerySearch] = useState("");
@@ -47,7 +46,6 @@ export function CustomersPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [importInfoOpen, setImportInfoOpen] = useState(false);
 
   const canCreate = permissions.includes("customers.create");
@@ -63,26 +61,6 @@ export function CustomersPage() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [search]);
-
-  useEffect(() => {
-    let mounted = true;
-    if (!profile?.role_id) {
-      setPermissions([]);
-      return () => {
-        mounted = false;
-      };
-    }
-    void getRolePermissionKeys(profile.role_id)
-      .then((keys) => {
-        if (mounted) setPermissions(keys);
-      })
-      .catch(() => {
-        if (mounted) setActionError("customers.errors.permission");
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [profile?.role_id]);
 
   useEffect(() => {
     let mounted = true;
@@ -125,8 +103,14 @@ export function CustomersPage() {
   }, [refresh]);
 
   const studentTypeNames = useMemo(
-    () => new Map(studentTypes.map((type) => [type.id, type.name])),
-    [studentTypes],
+    () =>
+      new Map(
+        studentTypes.map((type) => [
+          type.id,
+          getStudentTypeName(type, i18n.language),
+        ]),
+      ),
+    [i18n.language, studentTypes],
   );
 
   const start = total === 0 ? 0 : page * pageSize + 1;
@@ -174,14 +158,6 @@ export function CustomersPage() {
         </div>
       </div>
 
-      {actionError && (
-        <p
-          className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-          role="alert"
-        >
-          {t(actionError)}
-        </p>
-      )}
       {loadError && (
         <div
           className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
@@ -218,9 +194,10 @@ export function CustomersPage() {
           <span className="sr-only">{t("customers.filters.status")}</span>
           <select
             className={inputClassName}
-            onChange={(event) =>
-              setStatusFilter(event.target.value as CustomerStatus | "")
-            }
+            onChange={(event) => {
+              setStatusFilter(event.target.value as CustomerStatus | "");
+              setPage(0);
+            }}
             value={statusFilter}
           >
             <option value="">{t("customers.filters.allStatuses")}</option>
@@ -235,13 +212,16 @@ export function CustomersPage() {
           <span className="sr-only">{t("customers.filters.studentType")}</span>
           <select
             className={inputClassName}
-            onChange={(event) => setStudentTypeFilter(event.target.value)}
+            onChange={(event) => {
+              setStudentTypeFilter(event.target.value);
+              setPage(0);
+            }}
             value={studentTypeFilter}
           >
             <option value="">{t("customers.filters.allStudentTypes")}</option>
             {studentTypes.map((studentType) => (
               <option key={studentType.id} value={studentType.id}>
-                {studentType.name}
+                {getStudentTypeName(studentType, i18n.language)}
               </option>
             ))}
           </select>
@@ -250,13 +230,16 @@ export function CustomersPage() {
           <span className="sr-only">{t("customers.filters.sort")}</span>
           <select
             className={inputClassName}
-            onChange={(event) => setSort(event.target.value as CustomerSort)}
+            onChange={(event) => {
+              setSort(event.target.value as CustomerSort);
+              setPage(0);
+            }}
             value={sort}
           >
             <option value="created_at">{t("customers.sort.created")}</option>
             <option value="first_name">{t("customers.sort.name")}</option>
             <option value="code">{t("customers.sort.code")}</option>
-            <option value="expires_on">{t("customers.sort.expiry")}</option>
+            <option value="expiry_date">{t("customers.sort.expiry")}</option>
           </select>
         </label>
         <button
@@ -264,7 +247,10 @@ export function CustomersPage() {
             ascending ? "customers.sort.descending" : "customers.sort.ascending",
           )}
           className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          onClick={() => setAscending((value) => !value)}
+          onClick={() => {
+            setAscending((value) => !value);
+            setPage(0);
+          }}
           type="button"
         >
           {t(ascending ? "customers.sort.ascending" : "customers.sort.descending")}

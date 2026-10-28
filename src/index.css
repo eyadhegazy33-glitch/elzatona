@@ -32,7 +32,12 @@
   display: none;
 }
 
+.order-ticket {
+  display: none;
+}
+
 .customer-card {
+  box-sizing: border-box;
   position: relative;
   display: flex;
   width: 85.6mm;
@@ -118,113 +123,191 @@
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 0;
   }
 
-  body * {
-    visibility: hidden !important;
+  html,
+  body {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
   }
 
-  .customer-print-area,
-  .customer-print-area *,
-  .customer-card-print-root,
-  .customer-card-print-root * {
+  body > *:not(#customer-print-area):not(#customer-print-pages):not(.order-ticket) {
+    display: none !important;
+  }
+
+  #customer-print-area,
+  #customer-print-pages {
+    position: static !important;
+    display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    color: #111827 !important;
+    visibility: visible !important;
+  }
+
+  #customer-print-area *,
+  #customer-print-pages * {
     visibility: visible !important;
   }
 
   .customer-print-area,
-  .customer-card-print-root {
-    position: absolute;
-    inset: 0;
-    display: block !important;
-    width: 190mm;
-    color: #111827 !important;
-  }
-
-  .customer-card-print-root {
-    width: 100%;
-    max-width: none !important;
-    padding: 0 !important;
-  }
-
-  .customer-card-screen-controls {
-    display: none !important;
-  }
-
   .customer-print-pages {
-    display: block !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .customer-print-sheet {
     display: grid;
-    width: 190mm;
-    height: 277mm;
-    align-content: start;
-    justify-content: center;
+    box-sizing: border-box;
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    padding: 0;
+    place-items: center;
+    break-inside: avoid;
+    page-break-inside: avoid;
     break-after: page;
     page-break-after: always;
     overflow: hidden;
   }
 
   .customer-print-sheet:last-child {
-    break-after: auto;
-    page-break-after: auto;
-  }
-
-  .customer-print-grid {
-    display: grid;
-    width: 174.2mm;
-    height: 277mm;
-    grid-template-columns: repeat(2, 85.6mm);
-    grid-auto-rows: 54mm;
-    justify-content: center;
-    align-content: start;
-    column-gap: 3mm;
-    row-gap: 1.75mm;
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 
   .customer-card {
     box-sizing: border-box;
+    display: flex !important;
+    flex: none !important;
     width: 85.6mm;
     height: 54mm;
+    min-width: 85.6mm;
+    min-height: 54mm;
+    max-width: 85.6mm;
+    max-height: 54mm;
+    margin: 0;
+    overflow: hidden;
+    border: 0.3mm solid rgb(var(--color-secondary));
+    border-radius: 2mm;
+    background-color: rgb(var(--color-primary));
+    background-image: linear-gradient(
+      135deg,
+      rgb(var(--color-primary)),
+      rgb(var(--color-secondary))
+    );
+    color: #fff !important;
     break-inside: avoid;
     page-break-inside: avoid;
     box-shadow: none;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
   }
 
   .customer-card::after {
-    display: block;
-    inset: 0;
-    background:
-      linear-gradient(#94a3b8, #94a3b8) left top / 1.5mm 0.15mm,
-      linear-gradient(#94a3b8, #94a3b8) left top / 0.15mm 1.5mm,
-      linear-gradient(#94a3b8, #94a3b8) right top / 1.5mm 0.15mm,
-      linear-gradient(#94a3b8, #94a3b8) right top / 0.15mm 1.5mm,
-      linear-gradient(#94a3b8, #94a3b8) left bottom / 1.5mm 0.15mm,
-      linear-gradient(#94a3b8, #94a3b8) left bottom / 0.15mm 1.5mm,
-      linear-gradient(#94a3b8, #94a3b8) right bottom / 1.5mm 0.15mm,
-      linear-gradient(#94a3b8, #94a3b8) right bottom / 0.15mm 1.5mm;
+    display: none !important;
   }
 
   .customer-card-content {
+    display: flex !important;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
     padding: 3mm;
   }
 
   .customer-card-qr {
+    display: grid !important;
     width: 24mm;
     height: 24mm;
+    flex: none;
+    place-items: center;
+    border: 1mm solid #fff;
+    background: #fff;
+    padding: 1mm;
   }
 
-  .customer-print-area .customer-print-grid {
-    width: auto;
-    height: auto;
-    grid-auto-rows: 54mm;
-    column-gap: 3mm;
-    row-gap: 1.75mm;
+  .customer-card-qr img {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain;
   }
 
-  .customer-print-area .customer-card {
-    width: 85.6mm;
-    height: 54mm;
+  .customer-card img {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .customer-card p,
+  .customer-card span,
+  .customer-card header {
+    color: inherit;
+  }
+
+  .customer-card-back {
+    display: flex !important;
+    flex-direction: column;
+    padding: 4mm;
+  }
+
+  .customer-card-back header {
+    border-color: rgb(255 255 255 / 45%) !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@page order-ticket {
+  size: 80mm auto;
+  margin: 0;
+}
+
+@media print {
+  body.printing-order-ticket > *:not(.order-ticket) {
+    display: none !important;
+  }
+
+  html:has(body.printing-order-ticket),
+  body.printing-order-ticket {
+    width: 80mm !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body.printing-order-ticket > .order-ticket {
+    position: static !important;
+    display: block !important;
+    width: 80mm !important;
+    margin: 0 !important;
+    padding: 3mm !important;
+    color: #111 !important;
+    background: #fff !important;
+    font: 10pt/1.35 ui-sans-serif, system-ui, sans-serif !important;
+    visibility: visible !important;
+    page: order-ticket;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  body.printing-order-ticket > .order-ticket * {
+    visibility: visible !important;
   }
 }

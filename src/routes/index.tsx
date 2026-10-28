@@ -3,8 +3,6 @@ import { AppLayout } from "../layouts/AppLayout";
 import { DashboardPage } from "../pages/DashboardPage";
 import { CustomerFormPage } from "../pages/CustomerFormPage";
 import { CustomerCardsPrintPage } from "../pages/CustomerCardsPrintPage";
-import { CustomerImportHistoryPage } from "../pages/CustomerImportHistoryPage";
-import { CustomerImportPage } from "../pages/CustomerImportPage";
 import { CustomerProfilePage } from "../pages/CustomerProfilePage";
 import { CustomersPage } from "../pages/CustomersPage";
 import { EmployeesPage } from "../pages/EmployeesPage";
@@ -13,12 +11,17 @@ import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { PendingAccountsPage } from "../pages/PendingAccountsPage";
 import { PendingApprovalPage } from "../pages/PendingApprovalPage";
+import { PointOfSalePage } from "../pages/PointOfSalePage";
 import { RegisterPage } from "../pages/RegisterPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { ResourcesPage } from "../pages/ResourcesPage";
 import { RolesPage } from "../pages/RolesPage";
 import { ScanPage } from "../pages/ScanPage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { AdminMenuPage } from "../pages/AdminMenuPage";
+import { NewOrderPage } from "../pages/NewOrderPage";
+import { OrderBoardPage } from "../pages/OrderBoardPage";
+import { OrdersPage } from "../pages/OrdersPage";
 import {
   NotAllowedPage,
   PendingApprovalRoute,
@@ -54,10 +57,40 @@ export const router = createBrowserRouter([
             children: [{ path: "/scan", element: <ScanPage /> }],
           },
           {
+            element: <PermissionRoute permission="orders.view" />,
+            children: [
+              { path: "/pos", element: <PointOfSalePage /> },
+              { path: "/orders/board", element: <OrderBoardPage /> },
+              { path: "/orders", element: <OrdersPage /> },
+            ],
+          },
+          {
+            element: (
+              <PermissionRoute permission={["orders.create", "orders.manage"]} />
+            ),
+            children: [{ path: "/orders/new", element: <NewOrderPage /> }],
+          },
+          {
             element: <PermissionRoute permission="customers.import" />,
             children: [
-              { path: "/customers/import", element: <CustomerImportPage /> },
-              { path: "/customers/import/history", element: <CustomerImportHistoryPage /> },
+              {
+                path: "/customers/import",
+                lazy: async () => {
+                  const { CustomerImportPage } = await import(
+                    "../pages/CustomerImportPage"
+                  );
+                  return { Component: CustomerImportPage };
+                },
+              },
+              {
+                path: "/customers/import/history",
+                lazy: async () => {
+                  const { CustomerImportHistoryPage } = await import(
+                    "../pages/CustomerImportHistoryPage"
+                  );
+                  return { Component: CustomerImportHistoryPage };
+                },
+              },
             ],
           },
           {
@@ -70,14 +103,18 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            element: <PermissionRoute permission="customers.view" />,
+            element: (
+              <PermissionRoute permission="customers.view" />
+            ),
             children: [
               { path: "/customers", element: <CustomersPage /> },
               { path: "/customers/:customerId", element: <CustomerProfilePage /> },
             ],
           },
           {
-            element: <PermissionRoute permission="customers.create" />,
+            element: (
+              <PermissionRoute permission="customers.create" />
+            ),
             children: [
               { path: "/customers/new", element: <CustomerFormPage /> },
             ],
@@ -103,6 +140,14 @@ export const router = createBrowserRouter([
           {
             element: <PermissionRoute permission="employees.view" />,
             children: [{ path: "/admin/employees", element: <EmployeesPage /> }],
+          },
+          {
+            element: (
+              <PermissionRoute
+                permission={["menu.manage", "menu.availability"]}
+              />
+            ),
+            children: [{ path: "/admin/menu", element: <AdminMenuPage /> }],
           },
           {
             element: <PermissionRoute permission="resources.manage" />,

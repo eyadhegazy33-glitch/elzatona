@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -18,10 +18,13 @@ import {
   type PrintableCustomerCard,
 } from "../components/CustomerCardPrint";
 import { useAuth } from "../hooks/useAuth";
+import { useBranding } from "../hooks/useBranding";
+import { waitForPrintAssets } from "../lib/print";
 import {
   getCustomer,
   getCustomerQrToken,
   getCustomerVisits,
+  getStudentTypeName,
   reissueQrToken,
   setCustomerStatus,
   softDeleteCustomer,
@@ -29,7 +32,6 @@ import {
   type CustomerStatus,
 } from "../services/customers";
 import { logCustomerCardPrint } from "../services/customerCards";
-import { getRolePermissionKeys as loadRolePermissionKeys } from "../services/roles";
 
 type Visit = { id: number; checked_in_at: string };
 type CustomerAction = "block" | "unblock" | "expire" | "reissue" | "delete";
@@ -70,23 +72,25 @@ function formatDate(
 
 export function CustomerProfilePage() {
   const { i18n, t } = useTranslation();
-  const { profile } = useAuth();
+  const { permissions } = useAuth();
+  const { loading: brandingLoading } = useBranding();
   const navigate = useNavigate();
   const { customerId = "" } = useParams();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState<string | null>(null);
-  const [newQrDataUrl, setNewQrDataUrl] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
   const [printingCard, setPrintingCard] = useState(false);
   const [printableCards, setPrintableCards] = useState<
     PrintableCustomerCard[]
   >([]);
+  const printStartedRef = useRef(false);
 
   const canEdit = permissions.includes("customers.edit");
   const canDelete = permissions.includes("customers.delete");
@@ -116,29 +120,82 @@ export function CustomerProfilePage() {
 
   useEffect(() => {
     let mounted = true;
-    if (!profile?.role_id) return;
-    void loadRolePermissionKeys(profile.role_id)
-      .then((keys) => {
-        if (mounted) setPermissions(keys);
+    if (!customer || !canPrint) {
+      setQrDataUrl(null);
+      setQrLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    setQrDataUrl(null);
+    setQrLoading(true);
+    void getCustomerQrToken(customer.id)
+      .then((token) =>
+        QRCode.toDataURL(
+          token,
+          {
+            errorCorrectionLevel: "M",
+            margin: 4,
+            width: 256,
+          },
+        ),
+      )
+      .then((dataUrl) => {
+        if (mounted) setQrDataUrl(dataUrl);
       })
-      .catch(() => {
-        if (mounted) setActionError("customers.errors.permission");
+      .catch((cause: unknown) => {
+        if (mounted) setActionError(customerErrorKey(cause));
+      })
+      .finally(() => {
+        if (mounted) setQrLoading(false);
       });
+
     return () => {
       mounted = false;
     };
-  }, [profile?.role_id]);
+  }, [canPrint, customer]);
 
   useEffect(() => {
-    if (!printableCards.length) return;
-    const frame = window.requestAnimationFrame(() => window.print());
+    if (!printableCards.length) {
+      printStartedRef.current = false;
+      return;
+    }
+    if (brandingLoading) return;
+    if (printStartedRef.current) return;
+
+    let cancelled = false;
     const clear = () => setPrintableCards([]);
     window.addEventListener("afterprint", clear, { once: true });
+    const print = async () => {
+      const printRoot = document.getElementById("customer-print-area");
+      if (!printRoot) {
+        throw new Error("Customer print root is missing.");
+      }
+      await waitForPrintAssets(printRoot);
+      if (cancelled) return;
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+      );
+      if (cancelled) return;
+      printStartedRef.current = true;
+      window.print();
+      void logCustomerCardPrint(printableCards.length).catch(() => {
+        setActionError("customerCards.errors.print");
+      });
+    };
+    void print().catch(() => {
+      if (cancelled) return;
+      setActionError("customerCards.errors.qr");
+      setPrintableCards([]);
+    });
     return () => {
-      window.cancelAnimationFrame(frame);
+      cancelled = true;
       window.removeEventListener("afterprint", clear);
     };
-  }, [printableCards]);
+  }, [brandingLoading, printableCards]);
 
   const confirm = async () => {
     if (!customer || !confirmAction || actionLoading) return;
@@ -164,12 +221,15 @@ export function CustomerProfilePage() {
         if (!token) {
           throw new Error("Missing QR token");
         }
-        const qrDataUrl = await QRCode.toDataURL(token, {
-          errorCorrectionLevel: "M",
-          margin: 4,
-          width: 256,
-        });
-        setNewQrDataUrl(qrDataUrl);
+        const qrDataUrl = await QRCode.toDataURL(
+          token,
+          {
+            errorCorrectionLevel: "M",
+            margin: 4,
+            width: 256,
+          },
+        );
+        setQrDataUrl(qrDataUrl);
         setToastKey("customers.toast.qrReissued");
       }
       setConfirmAction(null);
@@ -186,23 +246,22 @@ export function CustomerProfilePage() {
     setPrintingCard(true);
     try {
       const token = await getCustomerQrToken(customer.id);
-      const qrDataUrl = await QRCode.toDataURL(token, {
-        errorCorrectionLevel: "M",
-        margin: 4,
-        width: 256,
-      });
-      await logCustomerCardPrint(1);
+      const qrDataUrl = await QRCode.toDataURL(
+        token,
+        {
+          errorCorrectionLevel: "M",
+          margin: 4,
+          width: 256,
+        },
+      );
       const studentType = customer.student_type;
       setPrintableCards([
         {
           customer,
           qrDataUrl,
-          studentTypeName:
-            studentType == null
-              ? ""
-              : i18n.dir() === "rtl"
-                ? studentType.name
-                : studentType.name,
+          studentTypeName: studentType
+            ? getStudentTypeName(studentType, i18n.language)
+            : "",
         },
       ]);
     } catch {
@@ -309,12 +368,12 @@ export function CustomerProfilePage() {
               {canPrint && (
                 <button
                   className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-brand px-3 text-sm font-semibold text-white disabled:opacity-60"
-                  disabled={actionLoading || printingCard}
+                  disabled={actionLoading || printingCard || brandingLoading}
                   onClick={() => void printNewCard()}
                   type="button"
                 >
                   <Printer aria-hidden="true" size={16} />
-                  {printingCard
+                  {printingCard || brandingLoading
                     ? t("customerCards.printing")
                     : t("customers.actions.printCard")}
                 </button>
@@ -363,7 +422,6 @@ export function CustomerProfilePage() {
                   className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
                   onClick={() => {
                     setActionError(null);
-                    setNewQrDataUrl(null);
                     setConfirmAction("reissue");
                   }}
                   type="button"
@@ -402,7 +460,7 @@ export function CustomerProfilePage() {
             </p>
           )}
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(16rem,0.7fr)_minmax(20rem,0.8fr)]">
             <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
               <h2 className="text-lg font-semibold text-ink dark:text-white">
                 {t("customers.profile.details")}
@@ -413,9 +471,10 @@ export function CustomerProfilePage() {
                   label={t("customers.fields.studentType")}
                   value={
                     customer.student_type
-                      ? i18n.dir() === "rtl"
-                        ? customer.student_type.name
-                        : customer.student_type.name
+                      ? getStudentTypeName(
+                          customer.student_type,
+                          i18n.language,
+                        )
                       : "—"
                   }
                 />
@@ -440,6 +499,33 @@ export function CustomerProfilePage() {
                 </p>
               </div>
             </section>
+
+            {canPrint && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+                <h2 className="text-lg font-semibold text-ink dark:text-white">
+                  {t("customers.print.qrCode")}
+                </h2>
+                <div className="mt-4 grid min-h-48 place-items-center rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
+                  {qrLoading ? (
+                    <LoaderCircle
+                      aria-label={t("customerCards.generatingQr")}
+                      className="animate-spin text-brand"
+                      size={24}
+                    />
+                  ) : qrDataUrl ? (
+                    <img
+                      alt={t("customers.print.qrCode")}
+                      className="size-48 rounded-lg bg-white p-2"
+                      src={qrDataUrl}
+                    />
+                  ) : (
+                    <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+                      {t("customerCards.qrUnavailable")}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
               <h2 className="text-lg font-semibold text-ink dark:text-white">
@@ -474,23 +560,6 @@ export function CustomerProfilePage() {
             </section>
           </div>
 
-          {newQrDataUrl && (
-            <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/30 sm:flex-row sm:items-center">
-              <img
-                alt={t("customers.print.qrCode")}
-                className="size-32 rounded-lg bg-white p-2"
-                src={newQrDataUrl}
-              />
-              <div className="flex-1">
-                <h2 className="font-semibold text-emerald-900 dark:text-emerald-200">
-                  {t("customers.toast.qrReissued")}
-                </h2>
-                <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
-                  {t("customers.dialog.reissueComplete")}
-                </p>
-              </div>
-            </div>
-          )}
         </>
       )}
 

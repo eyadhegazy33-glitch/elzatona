@@ -11,11 +11,11 @@ import {
   findCustomerByNameAndBirthDate,
   getActiveStudentTypes,
   getCustomer,
+  getStudentTypeName,
   updateCustomer,
   type CustomerInput,
   type StudentType,
 } from "../services/customers";
-import { getRolePermissionKeys } from "../services/roles";
 
 const inputClassName =
   "mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
@@ -41,9 +41,30 @@ function asDateInput(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : "";
 }
 
+function parseDateInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(0);
+  date.setHours(0, 0, 0, 0);
+  date.setFullYear(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 export function CustomerFormPage() {
-  const { t } = useTranslation();
-  const { profile } = useAuth();
+  const { i18n, t } = useTranslation();
+  const { permissions } = useAuth();
   const navigate = useNavigate();
   const { customerId } = useParams();
   const isEdit = Boolean(customerId);
@@ -52,7 +73,6 @@ export function CustomerFormPage() {
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
-  const [hasViewPermission, setHasViewPermission] = useState(false);
 
   const schema = useMemo(
     () =>
@@ -71,11 +91,16 @@ export function CustomerFormPage() {
           birthDate: z
             .string()
             .regex(/^\d{4}-\d{2}-\d{2}$/, "customers.validation.birthDate")
+            .refine(
+              (value) => parseDateInput(value) !== null,
+              "customers.validation.birthDate",
+            )
             .refine((value) => {
-              const date = new Date(`${value}T00:00:00`);
+              const date = parseDateInput(value);
+              if (!date) return true;
               const today = new Date();
               today.setHours(0, 0, 0, 0);
-              return !Number.isNaN(date.getTime()) && date <= today;
+              return date <= today;
             }, "customers.validation.birthDateFuture"),
           studentTypeId: z.string().min(1, "customers.validation.studentType"),
           phone: z
@@ -88,10 +113,7 @@ export function CustomerFormPage() {
           expiryDate: z
             .string()
             .refine(
-              (value) =>
-                value.length === 0 ||
-                (/^\d{4}-\d{2}-\d{2}$/.test(value) &&
-                  !Number.isNaN(new Date(`${value}T00:00:00`).getTime())),
+              (value) => value.length === 0 || parseDateInput(value) !== null,
               "customers.validation.expiryDate",
             ),
           notes: z.string().max(2000, "customers.validation.notesMax"),
@@ -173,21 +195,6 @@ export function CustomerFormPage() {
     };
   }, [customerId, isEdit, reset]);
 
-  useEffect(() => {
-    let mounted = true;
-    if (!profile?.role_id) return;
-    void getRolePermissionKeys(profile.role_id)
-      .then((keys) => {
-        if (mounted) setHasViewPermission(keys.includes("customers.view"));
-      })
-      .catch(() => {
-        if (mounted) setHasViewPermission(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [profile?.role_id]);
-
   const submit = async (values: FormValues) => {
     setErrorKey(null);
     setDuplicateId(null);
@@ -210,7 +217,7 @@ export function CustomerFormPage() {
     } catch (cause) {
       const mappedError = customerErrorKey(cause);
       setErrorKey(mappedError);
-      if (mappedError === "customers.errors.duplicate" && hasViewPermission) {
+      if (mappedError === "customers.errors.duplicate" && permissions.includes("customers.view")) {
         try {
           const existing = await findCustomerByNameAndBirthDate({
             firstName: input.firstName,
@@ -344,7 +351,7 @@ export function CustomerFormPage() {
               </option>
               {studentTypes.map((studentType) => (
                 <option key={studentType.id} value={studentType.id}>
-                  {studentType.name}
+                  {getStudentTypeName(studentType, i18n.language)}
                 </option>
               ))}
             </select>

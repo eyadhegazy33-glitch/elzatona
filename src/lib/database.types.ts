@@ -220,20 +220,51 @@ export type Database = {
       imports: Table<
         {
           id: string;
+          user_id: string | null;
           created_by: string | null;
+          filename: string | null;
+          total: number;
+          created: number;
+          updated: number;
+          skipped: number;
+          failed: number;
+          rolled_back_at: string | null;
           created_at: string;
         },
         {
           id?: string;
+          user_id?: string | null;
           created_by?: string | null;
+          filename?: string | null;
+          total?: number;
+          created?: number;
+          updated?: number;
+          skipped?: number;
+          failed?: number;
+          rolled_back_at?: string | null;
           created_at?: string;
         },
         {
           id?: string;
+          user_id?: string | null;
           created_by?: string | null;
+          filename?: string | null;
+          total?: number;
+          created?: number;
+          updated?: number;
+          skipped?: number;
+          failed?: number;
+          rolled_back_at?: string | null;
           created_at?: string;
         },
         [
+          {
+            foreignKeyName: "imports_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "imports_created_by_fkey";
             columns: ["created_by"];
@@ -413,6 +444,89 @@ export type Database = {
           },
         ]
       >;
+      pos_menu_categories: Table<
+        {
+          id: string;
+          name_en: string;
+          name_ar: string;
+          sort: number;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          name_en: string;
+          name_ar: string;
+          sort?: number;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        },
+        {
+          id?: string;
+          name_en?: string;
+          name_ar?: string;
+          sort?: number;
+          active?: boolean;
+          updated_at?: string;
+        }
+      >;
+      pos_products: Table<
+        {
+          id: string;
+          category_id: string | null;
+          name_en: string;
+          name_ar: string;
+          description: string | null;
+          price: number;
+          qualifies_for_time: boolean;
+          active: boolean;
+          available: boolean;
+          image_path: string | null;
+          sort: number;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          category_id?: string | null;
+          name_en: string;
+          name_ar: string;
+          description?: string | null;
+          price: number;
+          qualifies_for_time?: boolean;
+          active?: boolean;
+          available?: boolean;
+          image_path?: string | null;
+          sort?: number;
+          created_at?: string;
+          updated_at?: string;
+        },
+        {
+          id?: string;
+          category_id?: string | null;
+          name_en?: string;
+          name_ar?: string;
+          description?: string | null;
+          price?: number;
+          qualifies_for_time?: boolean;
+          active?: boolean;
+          available?: boolean;
+          image_path?: string | null;
+          sort?: number;
+          updated_at?: string;
+        },
+        [
+          {
+            foreignKeyName: "pos_products_category_id_fkey";
+            columns: ["category_id"];
+            isOneToOne: false;
+            referencedRelation: "pos_menu_categories";
+            referencedColumns: ["id"];
+          },
+        ]
+      >;
       resources: Table<
         {
           id: string;
@@ -507,6 +621,10 @@ export type Database = {
         Args: { p_key: string };
         Returns: boolean;
       };
+      get_my_access: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
       update_employee: {
         Args: {
           p_user: string;
@@ -585,11 +703,212 @@ export type Database = {
       };
       check_out: {
         Args: { p_checkin: number };
-        Returns: undefined;
+        Returns: Json;
+      };
+      assign_customer_resource: {
+        Args: { p_checkin: number; p_resource: string | null };
+        Returns: Database["public"]["Tables"]["checkins"]["Row"];
       };
       get_resource_occupancy: {
         Args: Record<string, never>;
         Returns: { resource_id: string; people_inside: number }[];
+      };
+      import_customers: {
+        Args: {
+          p_rows: Json;
+          p_filename: string;
+          p_update_existing?: boolean;
+        };
+        Returns: {
+          import_id: string;
+          created: number;
+          updated: number;
+          skipped: number;
+          failed: number;
+        };
+      };
+      rollback_import: {
+        Args: { p_import: string };
+        Returns: number;
+      };
+      delete_resource: {
+        Args: { p_resource: string };
+        Returns: undefined;
+      };
+      get_pos_settings: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      update_pos_settings: {
+        Args: {
+          p_currency: string;
+          p_visit_duration_minutes: number;
+          p_fee_interval_minutes: number;
+          p_fee_amount: number;
+          p_timezone: string;
+          p_tax_percent: number;
+          p_service_percent: number;
+          p_timer_warning_minutes: number;
+          p_timer_grace_minutes: number;
+          p_fee_repeats: boolean;
+          p_timer_reset_on: string;
+          p_require_open_shift: boolean;
+          p_receipt_prefix: string;
+          p_cash_diff_alert: number;
+        };
+        Returns: Json;
+      };
+      list_pos_categories: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      save_pos_category: {
+        Args: {
+          p_id: string | null;
+          p_name_en: string;
+          p_name_ar: string;
+          p_sort: number;
+          p_active: boolean;
+        };
+        Returns: string;
+      };
+      list_pos_products: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      save_pos_product: {
+        Args: {
+          p_id: string | null;
+          p_name_en: string;
+          p_name_ar: string;
+          p_price: number;
+          p_qualifies_for_time: boolean;
+          p_active: boolean;
+        };
+        Returns: string;
+      };
+      save_pos_menu_item: {
+        Args: {
+          p_id: string | null;
+          p_category_id: string;
+          p_name_en: string;
+          p_name_ar: string;
+          p_description: string;
+          p_price: number;
+          p_counts_for_minimum: boolean;
+          p_available: boolean;
+          p_active: boolean;
+          p_image_path: string | null;
+          p_sort: number;
+        };
+        Returns: string;
+      };
+      get_current_pos_shift: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      open_pos_shift: {
+        Args: { p_opening_cash: number };
+        Returns: Json;
+      };
+      close_pos_shift: {
+        Args: { p_shift: string; p_counted_cash: number };
+        Returns: Json;
+      };
+      list_open_pos_visits: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      get_visit_timer: {
+        Args: { p_checkin: number };
+        Returns: Json;
+      };
+      list_open_pos_orders: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      create_pos_order: {
+        Args: {
+          p_customer: string;
+          p_checkin: number;
+          p_items: Json;
+          p_discount_type?: string | null;
+          p_discount_value?: number;
+          p_discount_reason?: string | null;
+        };
+        Returns: Json;
+      };
+      create_order: {
+        Args: {
+          p_customer: string;
+          p_items: Json;
+          p_note?: string | null;
+          p_discount?: number;
+          p_discount_reason?: string | null;
+        };
+        Returns: Json;
+      };
+      search_order_customers: {
+        Args: { p_query: string };
+        Returns: Json[];
+      };
+      set_pos_order_status: {
+        Args: { p_order: string; p_status: string };
+        Returns: undefined;
+      };
+      set_order_status: {
+        Args: { p_order: string; p_status: string };
+        Returns: undefined;
+      };
+      list_order_board: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      list_orders: {
+        Args: {
+          p_from?: string | null;
+          p_to?: string | null;
+          p_status?: string | null;
+          p_search?: string | null;
+          p_unpaid_only?: boolean;
+        };
+        Returns: Json[];
+      };
+      get_order_detail: {
+        Args: { p_order: string };
+        Returns: Json;
+      };
+      cancel_order: {
+        Args: { p_order: string; p_reason: string };
+        Returns: undefined;
+      };
+      complete_pos_order: {
+        Args: { p_order: string; p_payment_method: string };
+        Returns: Json;
+      };
+      cancel_pos_order: {
+        Args: { p_order: string; p_reason: string };
+        Returns: undefined;
+      };
+      void_pos_receipt: {
+        Args: { p_receipt: string; p_reason: string };
+        Returns: undefined;
+      };
+      list_pos_receipts: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      list_visit_fees: {
+        Args: Record<string, never>;
+        Returns: Json[];
+      };
+      waive_visit_fee: {
+        Args: { p_fee: string; p_reason: string };
+        Returns: undefined;
+      };
+      pay_visit_fee: {
+        Args: { p_fee: string; p_payment_method: string };
+        Returns: Json;
       };
     };
     Enums: {

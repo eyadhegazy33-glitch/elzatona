@@ -36,7 +36,7 @@ import {
   updateEmployee,
   type Employee,
 } from "../services/employees";
-import { getAllRoles, getRolePermissionKeys, type RegistrableRole } from "../services/roles";
+import { getAllRoles, type RegistrableRole } from "../services/roles";
 
 type EmployeeAction = "edit" | "suspend" | "reactivate" | "delete" | "reset";
 type EmployeeDialog = { action: EmployeeAction; employee: Employee } | null;
@@ -64,7 +64,7 @@ const inputClassName =
 
 export function EmployeesPage() {
   const { i18n, t } = useTranslation();
-  const { profile } = useAuth();
+  const { permissions, profile } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roles, setRoles] = useState<RegistrableRole[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,8 +75,6 @@ export function EmployeesPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [canManage, setCanManage] = useState(false);
-  const [canManageRoles, setCanManageRoles] = useState(false);
   const [dialog, setDialog] = useState<EmployeeDialog>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -119,35 +117,8 @@ export function EmployeesPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    if (!profile?.role_id) {
-      setCanManage(false);
-      setCanManageRoles(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    void getRolePermissionKeys(profile.role_id)
-      .then((keys) => {
-        if (mounted) {
-          setCanManage(keys.includes("employees.manage"));
-          setCanManageRoles(keys.includes("roles.manage"));
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setCanManage(false);
-          setCanManageRoles(false);
-          setLoadError(true);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [profile?.role_id]);
+  const canManage = permissions.includes("employees.manage");
+  const canManageRoles = permissions.includes("roles.manage");
 
   const refresh = useCallback(async () => {
     setLoading(true);

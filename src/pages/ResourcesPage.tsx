@@ -6,24 +6,38 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Table2,
+  Trash2,
+  UserPlus,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
+import { useAuth } from "../hooks/useAuth";
+import { useResources } from "../hooks/useResources";
 import {
+  assignCustomerToResource,
   bulkCreateResources,
-  getResources,
-  saveResource,
-  setResourceActive,
+  checkInCustomerToResource,
+  createResource,
+  deleteResource,
+  getResourceErrorDetails,
+  searchResourceCustomers,
+  updateResource,
   type Resource,
+  type ResourceCustomerCandidate,
   type ResourceStatus,
   type ResourceType,
 } from "../services/resources";
 
-type Toast = { kind: "success" | "error"; key: string } | null;
+type Toast = {
+  kind: "success" | "error";
+  key: string;
+  params?: Record<string, number>;
+} | null;
 
 const resourceSchema = z.object({
   type: z.enum(["seat", "room", "table"]),
@@ -31,13 +45,14 @@ const resourceSchema = z.object({
     .string()
     .trim()
     .min(1, "resources.validation.nameRequired")
-    .max(80, "resources.validation.nameMax"),
+    .max(60, "resources.validation.nameMax"),
   capacity: z.coerce
     .number()
     .int("resources.validation.capacityInteger")
     .min(1, "resources.validation.capacityMin")
     .max(200, "resources.validation.capacityMax"),
   status: z.enum(["available", "maintenance"]),
+  active: z.boolean(),
 });
 
 const bulkSchema = z.object({
@@ -46,7 +61,7 @@ const bulkSchema = z.object({
     .string()
     .trim()
     .min(1, "resources.validation.prefixRequired")
-    .max(60, "resources.validation.prefixMax"),
+    .max(56, "resources.validation.prefixMax"),
   count: z.coerce
     .number()
     .int("resources.validation.countInteger")
@@ -73,6 +88,31 @@ const typeIcons: Record<ResourceType, typeof Armchair> = {
 };
 
 function getErrorKey(cause: unknown): string {
+  const message =
+    cause && typeof cause === "object" && "message" in cause
+      ? String(cause.message).toLowerCase()
+      : "";
+  if (message.includes("already checked in")) {
+    return "resources.errors.customerAlreadyInside";
+  }
+  if (message.includes("resource is full")) {
+    return "resources.errors.resourceFull";
+  }
+  if (message.includes("resource not available")) {
+    return "resources.errors.resourceUnavailable";
+  }
+  if (message.includes("customer not allowed")) {
+    return "resources.errors.customerNotAllowed";
+  }
+  if (message.includes("customer not found")) {
+    return "resources.errors.customerNotFound";
+  }
+  if (message.includes("resource occupied")) {
+    return "resources.errors.resourceOccupied";
+  }
+  if (message.includes("not allowed")) {
+    return "resources.errors.permission";
+  }
   if (
     typeof cause === "object" &&
     cause !== null &&
@@ -89,19 +129,95 @@ function getErrorKey(cause: unknown): string {
   ) {
     return "resources.errors.permission";
   }
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "23514"
+  ) {
+    return "resources.errors.resourceOccupied";
+  }
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    (cause.code === "42883" ||
+      cause.code === "23503" ||
+      cause.code === "PGRST202")
+  ) {
+    return "resources.errors.databaseMigrationRequired";
+  }
   return "resources.errors.action";
 }
 
 export function ResourcesPage() {
   const { t } = useTranslation();
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const { permissions } = useAuth();
+  const canRegisterCustomers =
+    permissions.includes("customers.view") &&
+    permissions.includes("checkins.manage");
+  const {
+    resources,
+    loading,
+    error: loadError,
+    reload: refresh,
+  } = useResources();
   const [dialog, setDialog] = useState<ResourceDialog>(null);
+  const [resourceToDelete, setResourceToDelete] = useState<Resource | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteErrorDetails, setDeleteErrorDetails] = useState("");
   const [saving, setSaving] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
+  const [resourceView, setResourceView] = useState<"all" | "active" | "archived">("all");
+  const [registrationResource, setRegistrationResource] =
+    useState<Resource | null>(null);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerCandidates, setCustomerCandidates] = useState<
+    ResourceCustomerCandidate[]
+  >([]);
+  const [selectedCandidate, setSelectedCandidate] =
+    useState<ResourceCustomerCandidate | null>(null);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [registeringCustomer, setRegisteringCustomer] = useState(false);
+  const [registrationError, setRegistrationError] = useState("");
+
+  useEffect(() => {
+    if (!registrationResource || !customerSearch.trim()) {
+      setCustomerCandidates([]);
+      setSearchingCustomers(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearchingCustomers(true);
+      void searchResourceCustomers(customerSearch)
+        .then((candidates) => {
+          if (!cancelled) setCustomerCandidates(candidates);
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) {
+            setRegistrationError(
+              import.meta.env.DEV
+                ? getResourceErrorDetails(cause) || t("resources.errors.customerSearch")
+                : t("resources.errors.customerSearch"),
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingCustomers(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [customerSearch, registrationResource, t]);
 
   const resourceForm = useForm<
     z.input<typeof resourceSchema>,
@@ -114,6 +230,7 @@ export function ResourcesPage() {
       name: "",
       capacity: 1,
       status: "available",
+      active: true,
     },
   });
   const bulkForm = useForm<
@@ -129,46 +246,17 @@ export function ResourcesPage() {
       capacity: 1,
     },
   });
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      setResources(await getResources());
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    let mounted = true;
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void getResources()
-        .then((nextResources) => {
-          if (mounted) {
-            setResources(nextResources);
-            setLoadError(false);
-          }
-        })
-        .catch(() => {
-          if (mounted) {
-            setLoadError(true);
-          }
-        });
-    }, 30_000);
-
-    return () => {
-      mounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const visibleResources = resources.filter((resource) =>
+    resourceView === "all"
+      ? true
+      : resourceView === "active"
+        ? resource.active
+        : !resource.active,
+  );
+  const resourcePendingDeletion = resourceToDelete
+    ? resources.find((resource) => resource.id === resourceToDelete.id) ??
+      resourceToDelete
+    : null;
 
   const openCreateDialog = () => {
     setToast(null);
@@ -177,6 +265,7 @@ export function ResourcesPage() {
       name: "",
       capacity: 1,
       status: "available",
+      active: true,
     });
     setDialog({ resource: null });
   };
@@ -188,6 +277,7 @@ export function ResourcesPage() {
       name: resource.name,
       capacity: resource.capacity,
       status: resource.status,
+      active: resource.active,
     });
     setDialog({ resource });
   };
@@ -197,10 +287,11 @@ export function ResourcesPage() {
     setSaving(true);
     setToast(null);
     try {
-      await saveResource({
-        ...values,
-        id: dialog?.resource?.id,
-      });
+      if (dialog?.resource) {
+        await updateResource(dialog.resource.id, values);
+      } else {
+        await createResource(values);
+      }
       setDialog(null);
       setToast({
         kind: "success",
@@ -222,13 +313,16 @@ export function ResourcesPage() {
     setBulkSaving(true);
     setToast(null);
     try {
-      const createdCount = await bulkCreateResources(values);
+      const { created, skipped } = await bulkCreateResources(
+        values.type,
+        values.prefix,
+        values.count,
+        values.capacity,
+      );
       setToast({
         kind: "success",
-        key:
-          createdCount === values.count
-            ? "resources.toast.bulkCreated"
-            : "resources.toast.bulkCreatedWithSkipped",
+        key: "resources.toast.bulkCreated",
+        params: { created, skipped },
       });
       await refresh();
     } catch (cause) {
@@ -242,7 +336,13 @@ export function ResourcesPage() {
     setUpdatingId(resource.id);
     setToast(null);
     try {
-      await setResourceActive(resource.id, !resource.active);
+      await updateResource(resource.id, {
+        type: resource.type,
+        name: resource.name,
+        capacity: resource.capacity,
+        status: resource.status,
+        active: !resource.active,
+      });
       setToast({
         kind: "success",
         key: resource.active
@@ -254,6 +354,79 @@ export function ResourcesPage() {
       setToast({ kind: "error", key: getErrorKey(cause) });
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const confirmDeleteResource = async () => {
+    const currentResource = resourceToDelete
+      ? resources.find((resource) => resource.id === resourceToDelete.id) ??
+        resourceToDelete
+      : null;
+    if (!currentResource || deleting || currentResource.occupancy > 0) return;
+    setDeleting(true);
+    setDeleteError("");
+    setDeleteErrorDetails("");
+    setToast(null);
+    try {
+      await deleteResource(currentResource.id);
+      setResourceToDelete(null);
+      setToast({ kind: "success", key: "resources.toast.deleted" });
+      await refresh();
+    } catch (cause) {
+      setDeleteError(getErrorKey(cause));
+      setDeleteErrorDetails(getResourceErrorDetails(cause));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openRegistration = (resource: Resource) => {
+    setRegistrationResource(resource);
+    setCustomerSearch("");
+    setCustomerCandidates([]);
+    setSelectedCandidate(null);
+    setRegistrationError("");
+  };
+
+  const closeRegistration = () => {
+    if (registeringCustomer) return;
+    setRegistrationResource(null);
+    setSelectedCandidate(null);
+    setRegistrationError("");
+  };
+
+  const registerSelectedCustomer = async () => {
+    if (!registrationResource || !selectedCandidate || registeringCustomer) {
+      return;
+    }
+    setRegisteringCustomer(true);
+    setRegistrationError("");
+    try {
+      if (selectedCandidate.checkinId !== null) {
+        await assignCustomerToResource(
+          selectedCandidate.checkinId,
+          registrationResource.id,
+        );
+      } else {
+        await checkInCustomerToResource(
+          selectedCandidate.id,
+          registrationResource.id,
+        );
+      }
+      setRegistrationResource(null);
+      setSelectedCandidate(null);
+      setToast({
+        kind: "success",
+        key:
+          selectedCandidate.checkinId !== null
+            ? "resources.toast.customerAssigned"
+            : "resources.toast.customerCheckedIn",
+      });
+      await refresh();
+    } catch (cause) {
+      setRegistrationError(t(getErrorKey(cause)));
+    } finally {
+      setRegisteringCustomer(false);
     }
   };
 
@@ -294,7 +467,7 @@ export function ResourcesPage() {
           }`}
           role={toast.kind === "error" ? "alert" : "status"}
         >
-          {t(toast.key)}
+          {t(toast.key, toast.params)}
         </p>
       )}
 
@@ -376,35 +549,65 @@ export function ResourcesPage() {
         <h2 className="text-xl font-semibold text-ink dark:text-white">
           {t("resources.listTitle")}
         </h2>
-        <button
-          aria-label={t("resources.actions.refresh")}
-          className="inline-flex size-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          disabled={loading}
-          onClick={() => void refresh()}
-          type="button"
-        >
-          {loading ? (
-            <LoaderCircle aria-hidden="true" className="animate-spin" size={17} />
-          ) : (
-            <RefreshCw aria-hidden="true" size={17} />
-          )}
-        </button>
-      </div>
-
-      {loadError && (
-        <div
-          className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-          role="alert"
-        >
-          <span>{t("resources.errors.load")}</span>
+        <div className="flex items-center gap-2">
+          <label className="sr-only" htmlFor="resource-view-filter">
+            {t("resources.fields.view")}
+          </label>
+          <select
+            className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+            id="resource-view-filter"
+            onChange={(event) =>
+              setResourceView(event.target.value as typeof resourceView)
+            }
+            value={resourceView}
+          >
+            <option value="all">{t("resources.filters.all")}</option>
+            <option value="active">{t("resources.filters.active")}</option>
+            <option value="archived">{t("resources.filters.archived")}</option>
+          </select>
           <button
-            className="font-semibold underline"
+            aria-label={t("resources.actions.refresh")}
+            className="inline-flex size-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            disabled={loading}
             onClick={() => void refresh()}
             type="button"
           >
-            {t("resources.actions.retry")}
+            {loading ? (
+              <LoaderCircle aria-hidden="true" className="animate-spin" size={17} />
+            ) : (
+              <RefreshCw aria-hidden="true" size={17} />
+            )}
           </button>
         </div>
+      </div>
+      {!canRegisterCustomers && (
+        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+          {t("resources.registration.permissionNotice")}
+        </p>
+      )}
+
+      {Boolean(loadError) && (
+        <>
+          <div
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+            role="alert"
+          >
+            <span>{t("resources.errors.load")}</span>
+            <button
+              className="font-semibold underline"
+              disabled={loading}
+              onClick={() => void refresh()}
+              type="button"
+            >
+              {t("resources.actions.retry")}
+            </button>
+          </div>
+          {import.meta.env.DEV && getResourceErrorDetails(loadError) && (
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
+              {getResourceErrorDetails(loadError)}
+            </pre>
+          )}
+        </>
       )}
 
       {loading ? (
@@ -415,10 +618,22 @@ export function ResourcesPage() {
           <LoaderCircle aria-hidden="true" className="animate-spin" size={18} />
           {t("resources.loading")}
         </div>
-      ) : !loadError && resources.length === 0 ? (
-        <p className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          {t("resources.empty")}
-        </p>
+      ) : !loadError && visibleResources.length === 0 ? (
+        <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-8 text-center dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {resources.length === 0
+              ? t("resources.empty")
+              : t("resources.emptyFilter")}
+          </p>
+          <button
+            className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white"
+            onClick={openCreateDialog}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={17} />
+            {t("resources.actions.create")}
+          </button>
+        </div>
       ) : (
         !loadError && (
           <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -435,11 +650,19 @@ export function ResourcesPage() {
                 </tr>
               </thead>
               <tbody>
-                {resources.map((resource) => {
+                {visibleResources.map((resource) => {
                   const Icon = typeIcons[resource.type];
+                  const remaining = Math.max(
+                    0,
+                    resource.capacity - resource.occupancy,
+                  );
                   return (
                     <tr
-                      className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                      className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${
+                        resource.occupancy > 0
+                          ? "bg-amber-50/80 dark:bg-amber-950/20"
+                          : ""
+                      }`}
                       key={resource.id}
                     >
                       <td className="px-4 py-4 font-medium text-ink dark:text-slate-100">
@@ -455,10 +678,23 @@ export function ResourcesPage() {
                         {resource.capacity}
                       </td>
                       <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                        {t("resources.occupancy", {
-                          count: resource.occupancy,
-                          capacity: resource.capacity,
-                        })}
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              resource.occupancy > 0
+                                ? "bg-amber-200 text-amber-950 dark:bg-amber-900/70 dark:text-amber-100"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                            }`}
+                          >
+                            {t("resources.occupancy", {
+                              count: resource.occupancy,
+                              capacity: resource.capacity,
+                            })}
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {t("resources.remaining", { count: remaining })}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
                         {t(`resources.status.${resource.status}`)}
@@ -466,6 +702,12 @@ export function ResourcesPage() {
                       <td className="px-4 py-4">
                         <button
                           aria-pressed={resource.active}
+                          aria-label={t(
+                            resource.active
+                              ? "resources.actions.archiveNamed"
+                              : "resources.actions.restoreNamed",
+                            { name: resource.name },
+                          )}
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${
                             resource.active
                               ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
@@ -477,13 +719,30 @@ export function ResourcesPage() {
                         >
                           {t(
                             resource.active
-                              ? "resources.status.active"
-                              : "resources.status.inactive",
+                              ? "resources.actions.archive"
+                              : "resources.actions.restore",
                           )}
                         </button>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2">
+                          {canRegisterCustomers && (
+                            <button
+                              aria-label={t("resources.actions.registerCustomerFor", {
+                                name: resource.name,
+                              })}
+                              className="inline-flex size-9 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                              disabled={
+                                !resource.active ||
+                                resource.status !== "available" ||
+                                resource.occupancy >= resource.capacity
+                              }
+                              onClick={() => openRegistration(resource)}
+                              type="button"
+                            >
+                              <UserPlus aria-hidden="true" size={16} />
+                            </button>
+                          )}
                           <button
                             aria-label={t("resources.actions.editNamed", {
                               name: resource.name,
@@ -493,6 +752,21 @@ export function ResourcesPage() {
                             type="button"
                           >
                             <Pencil aria-hidden="true" size={16} />
+                          </button>
+                          <button
+                            aria-label={t("resources.actions.deleteNamed", {
+                              name: resource.name,
+                            })}
+                            className="inline-flex size-9 items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                            disabled={updatingId === resource.id}
+                            onClick={() => {
+                              setDeleteError("");
+                              setDeleteErrorDetails("");
+                              setResourceToDelete(resource);
+                            }}
+                            type="button"
+                          >
+                            <Trash2 aria-hidden="true" size={16} />
                           </button>
                         </div>
                       </td>
@@ -589,6 +863,14 @@ export function ResourcesPage() {
                   )}
                 </select>
               </label>
+              <label className="flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+                <input
+                  className="size-4 accent-brand"
+                  type="checkbox"
+                  {...resourceForm.register("active")}
+                />
+                {t("resources.fields.active")}
+              </label>
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   className="min-h-10 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -618,6 +900,230 @@ export function ResourcesPage() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+      {resourcePendingDeletion && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deleting) {
+              setResourceToDelete(null);
+              setDeleteError("");
+              setDeleteErrorDetails("");
+            }
+          }}
+        >
+          <section
+            aria-labelledby="delete-resource-dialog-title"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            role="dialog"
+          >
+            <h2
+              className="text-xl font-semibold text-ink dark:text-white"
+              id="delete-resource-dialog-title"
+            >
+              {t("resources.dialog.deleteTitle")}
+            </h2>
+            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+              {t("resources.dialog.deleteMessage", {
+                name: resourcePendingDeletion.name,
+              })}
+            </p>
+            {deleteError && (
+              <div
+                className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                role="alert"
+              >
+                <p>{t(deleteError)}</p>
+                {import.meta.env.DEV && deleteErrorDetails && (
+                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs">
+                    {deleteErrorDetails}
+                  </pre>
+                )}
+              </div>
+            )}
+            {resourcePendingDeletion.occupancy > 0 && (
+              <p
+                className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                role="alert"
+              >
+                {t("resources.errors.resourceOccupied")}
+              </p>
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                className="min-h-10 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300"
+                disabled={deleting}
+                onClick={() => {
+                  setResourceToDelete(null);
+                  setDeleteError("");
+                  setDeleteErrorDetails("");
+                }}
+                type="button"
+              >
+                {t("resources.actions.cancel")}
+              </button>
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={
+                  deleting || resourcePendingDeletion.occupancy > 0
+                }
+                onClick={() => void confirmDeleteResource()}
+                type="button"
+              >
+                {deleting && (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="animate-spin"
+                    size={16}
+                  />
+                )}
+                {t("resources.actions.delete")}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {registrationResource && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeRegistration();
+          }}
+        >
+          <section
+            aria-labelledby="resource-customer-dialog-title"
+            aria-modal="true"
+            className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            role="dialog"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  className="text-xl font-semibold text-ink dark:text-white"
+                  id="resource-customer-dialog-title"
+                >
+                  {t("resources.dialog.customerTitle")}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  {t("resources.registration.target", {
+                    name: registrationResource.name,
+                  })}
+                </p>
+              </div>
+              <button
+                aria-label={t("resources.actions.close")}
+                className="inline-flex size-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                disabled={registeringCustomer}
+                onClick={closeRegistration}
+                type="button"
+              >
+                <X aria-hidden="true" size={18} />
+              </button>
+            </div>
+            <label className="mt-5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t("resources.registration.search")}
+              <span className="relative block">
+                <Search
+                  aria-hidden="true"
+                  className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={17}
+                />
+                <input
+                  autoFocus
+                  className={`${inputClassName} ps-10`}
+                  onChange={(event) => {
+                    setCustomerSearch(event.target.value);
+                    setCustomerCandidates([]);
+                    setSelectedCandidate(null);
+                    setRegistrationError("");
+                  }}
+                  value={customerSearch}
+                />
+              </span>
+            </label>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("resources.registration.help")}
+            </p>
+            {registrationError && (
+              <p
+                className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                role="alert"
+              >
+                {registrationError}
+              </p>
+            )}
+            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+              {searchingCustomers ? (
+                <p className="py-4 text-center text-sm text-slate-500">
+                  {t("resources.registration.searching")}
+                </p>
+              ) : customerSearch.trim() && customerCandidates.length === 0 ? (
+                <p className="py-4 text-center text-sm text-slate-500">
+                  {t("resources.registration.noCustomers")}
+                </p>
+              ) : (
+                customerCandidates.map((candidate) => (
+                  <label
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                      selectedCandidate?.id === candidate.id
+                        ? "border-brand bg-brand/5"
+                        : "border-slate-200 dark:border-slate-700"
+                    }`}
+                    key={candidate.id}
+                  >
+                    <input
+                      checked={selectedCandidate?.id === candidate.id}
+                      name="resource-customer"
+                      onChange={() => setSelectedCandidate(candidate)}
+                      type="radio"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {candidate.first_name} {candidate.last_name}
+                      </span>
+                      <span className="mt-1 block font-mono text-xs text-slate-500">
+                        {candidate.code}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {candidate.checkinId !== null
+                          ? t("resources.registration.inside")
+                          : t("resources.registration.notInside")}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                className="min-h-10 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                disabled={registeringCustomer}
+                onClick={closeRegistration}
+                type="button"
+              >
+                {t("resources.actions.cancel")}
+              </button>
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={!selectedCandidate || registeringCustomer}
+                onClick={() => void registerSelectedCustomer()}
+                type="button"
+              >
+                {registeringCustomer && (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="animate-spin"
+                    size={16}
+                  />
+                )}
+                {selectedCandidate && selectedCandidate.checkinId !== null
+                  ? t("resources.actions.assignCustomer")
+                  : t("resources.actions.checkInCustomer")}
+              </button>
+            </div>
           </section>
         </div>
       )}

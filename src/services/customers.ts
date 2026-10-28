@@ -5,9 +5,19 @@ export type CustomerStatus = Database["public"]["Enums"]["customer_status"];
 
 export type StudentType = {
   id: string;
-  name: string;
+  name_en: string;
+  name_ar: string;
   active: boolean;
 };
+
+export function getStudentTypeName(
+  studentType: Pick<StudentType, "name_en" | "name_ar">,
+  language: string,
+): string {
+  return language.startsWith("ar")
+    ? studentType.name_ar
+    : studentType.name_en;
+}
 
 export type Customer = {
   id: string;
@@ -42,9 +52,15 @@ export type CustomerInput = {
   notes: string;
 };
 
-export type CustomerSort = "created_at" | "first_name" | "code" | "expires_on";
+export type CustomerSort =
+  | "created_at"
+  | "first_name"
+  | "code"
+  | "expiry_date";
 
 function normalizeCustomer(row: Record<string, any>): Customer {
+  const studentType = row.student_type;
+
   return {
     ...row,
     id: row.id,
@@ -56,12 +72,19 @@ function normalizeCustomer(row: Record<string, any>): Customer {
     status: row.status,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    expires_on: row.expires_on ?? null,
+    expires_on: row.expiry_date ?? null,
     phone: row.phone ?? null,
     notes: row.notes ?? null,
     deleted_at: row.deleted_at ?? null,
     full_name: [row.first_name, row.last_name].filter(Boolean).join(" ").trim(),
-    student_type: row.student_type ?? null,
+    student_type: studentType
+      ? {
+          id: studentType.id,
+          name_en: studentType.name_en,
+          name_ar: studentType.name_ar,
+          active: studentType.is_active,
+        }
+      : null,
   } as Customer;
 }
 
@@ -70,9 +93,9 @@ function rpcInput(input: CustomerInput) {
     p_first_name: input.firstName,
     p_last_name: input.lastName,
     p_birth_date: input.birthDate,
-    p_student_type: input.studentTypeId,
+    p_student_type_id: input.studentTypeId,
     p_phone: input.phone || null,
-    p_expires_on: input.expiryDate || null,
+    p_expiry_date: input.expiryDate || null,
     p_notes: input.notes || null,
   };
 }
@@ -81,11 +104,23 @@ export async function getActiveStudentTypes(): Promise<StudentType[]> {
   const client: any = getSupabaseClient();
   const { data, error } = await client
     .from("student_types")
-    .select("id, name, active")
-    .eq("active", true)
-    .order("name");
+    .select("id, name_en, name_ar, is_active")
+    .eq("is_active", true)
+    .order("name_en");
   if (error) throw error;
-  return (data ?? []) as StudentType[];
+  return (data ?? []).map(
+    (studentType: {
+      id: string;
+      name_en: string;
+      name_ar: string;
+      is_active: boolean;
+    }) => ({
+      id: studentType.id,
+      name_en: studentType.name_en,
+      name_ar: studentType.name_ar,
+      active: studentType.is_active,
+    }),
+  );
 }
 
 export async function getCustomers(input: {
@@ -103,7 +138,7 @@ export async function getCustomers(input: {
   let query: any = client
     .from("customers")
     .select(
-      "id, code, first_name, last_name, birth_date, student_type_id, phone, expires_on, notes, status, created_at, updated_at, deleted_at, student_type:student_types(id, name, active)",
+      "id, code, first_name, last_name, birth_date, student_type_id, phone, expiry_date, notes, status, created_at, updated_at, deleted_at, student_type:student_types(id, name_en, name_ar, is_active)",
       { count: "exact" },
     )
     .is("deleted_at", null)
@@ -134,7 +169,7 @@ export async function getCustomer(customerId: string): Promise<Customer | null> 
   const { data, error } = await client
     .from("customers")
     .select(
-      "id, code, first_name, last_name, birth_date, student_type_id, phone, expires_on, notes, status, created_at, updated_at, deleted_at, student_type:student_types(id, name, active)",
+      "id, code, first_name, last_name, birth_date, student_type_id, phone, expiry_date, notes, status, created_at, updated_at, deleted_at, student_type:student_types(id, name_en, name_ar, is_active)",
     )
     .eq("id", customerId)
     .is("deleted_at", null)
@@ -191,7 +226,7 @@ export async function updateCustomer(
 ): Promise<void> {
   const client: any = getSupabaseClient();
   const { error } = await client.rpc("update_customer", {
-    p_id: customerId,
+    p_customer: customerId,
     ...rpcInput(input),
   });
   if (error) throw error;
@@ -203,7 +238,7 @@ export async function setCustomerStatus(
 ): Promise<void> {
   const client: any = getSupabaseClient();
   const { error } = await client.rpc("set_customer_status", {
-    p_id: customerId,
+    p_customer: customerId,
     p_status: status,
   });
   if (error) throw error;
@@ -212,37 +247,33 @@ export async function setCustomerStatus(
 export async function softDeleteCustomer(customerId: string): Promise<void> {
   const client: any = getSupabaseClient();
   const { error } = await client.rpc("soft_delete_customer", {
-    p_id: customerId,
+    p_customer: customerId,
   });
   if (error) throw error;
 }
 
 export async function reissueQrToken(customerId: string): Promise<string> {
   const client: any = getSupabaseClient();
-  const { error } = await client.rpc("reissue_qr_token", { p_id: customerId });
+  const { data, error } = await client.rpc("reissue_qr_token", {
+    p_customer: customerId,
+  });
   if (error) throw error;
-  const { data, error: loadError } = await client
-    .from("customers")
-    .select("qr_token")
-    .eq("id", customerId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (loadError) throw loadError;
-  if (!data?.qr_token) throw new Error("Missing customer qr token");
-  return data.qr_token as string;
+  if (typeof data !== "string" || !data) {
+    throw new Error("QR reissue returned no token");
+  }
+  return data;
 }
 
 export async function getCustomerQrToken(
   customerId: string,
 ): Promise<string> {
-  const client: any = getSupabaseClient();
-  const { data, error } = await client
-    .from("customers")
-    .select("qr_token")
-    .eq("id", customerId)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const { data, error } = await getSupabaseClient().rpc(
+    "get_customer_qr_token",
+    { p_customer: customerId },
+  );
   if (error) throw error;
-  if (!data?.qr_token) throw new Error("Missing customer qr token");
-  return data.qr_token as string;
+  if (typeof data !== "string" || !data) {
+    throw new Error("QR token request returned no token");
+  }
+  return data;
 }

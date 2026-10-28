@@ -5,11 +5,6 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { z } from "zod";
-import {
-  AuthCaptcha,
-  isAuthCaptchaConfigured,
-  type AuthCaptchaHandle,
-} from "../components/AuthCaptcha";
 import { BrandingIdentity } from "../components/BrandingIdentity";
 import { useAuth } from "../hooks/useAuth";
 import { isSupabaseConfigured } from "../lib/supabase";
@@ -74,8 +69,6 @@ export function RegisterPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const submitStarted = useRef(false);
-  const captchaRef = useRef<AuthCaptchaHandle>(null);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const {
     formState: { errors, isSubmitting },
     handleSubmit,
@@ -135,10 +128,6 @@ export function RegisterPage() {
       return;
     }
 
-    if (isAuthCaptchaConfigured && !captchaToken) {
-      return;
-    }
-
     submitStarted.current = true;
     setSubmitError(null);
 
@@ -150,7 +139,7 @@ export function RegisterPage() {
         email: values.email,
         password: values.password,
         requestedRoleId: values.requestedRoleId,
-      }, captchaToken ?? undefined);
+      });
       setSubmitted(true);
     } catch (error) {
       const messageKey =
@@ -167,7 +156,6 @@ export function RegisterPage() {
         setSubmitError(messageKey);
       }
     } finally {
-      captchaRef.current?.reset();
       submitStarted.current = false;
     }
   });
@@ -479,16 +467,13 @@ export function RegisterPage() {
                   </p>
                 )}
 
-                <AuthCaptcha ref={captchaRef} onTokenChange={setCaptchaToken} />
-
                 <button
                   className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand/90 focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus:ring-offset-slate-900"
                   disabled={
                     isSubmitting ||
                     rolesLoading ||
                     roles.length === 0 ||
-                    Boolean(rolesError) ||
-                    (isAuthCaptchaConfigured && !captchaToken)
+                    Boolean(rolesError)
                   }
                   type="submit"
                 >

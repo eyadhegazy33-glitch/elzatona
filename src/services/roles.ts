@@ -16,6 +16,11 @@ export type Permission = {
   description: string | null;
 };
 
+export function isCustomerStaffRole(roleName: string | null | undefined): boolean {
+  const normalizedName = roleName?.trim().toLowerCase();
+  return normalizedName === "admin" || normalizedName === "reception";
+}
+
 export async function getRoles(): Promise<ManagedRole[]> {
   const { data, error } = await getSupabaseClient()
     .from("roles")

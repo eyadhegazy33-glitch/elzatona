@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
-import { getRolePermissionKeys } from "../services/roles";
 
 function RouteMessage({ messageKey }: { messageKey: string }) {
   const { t } = useTranslation();
@@ -13,6 +12,20 @@ function RouteMessage({ messageKey }: { messageKey: string }) {
       role="status"
     >
       {t(messageKey)}
+    </div>
+  );
+}
+
+function RouteSkeleton() {
+  return (
+    <div
+      aria-busy="true"
+      className="mx-auto max-w-5xl animate-pulse space-y-4 px-6 py-16"
+      role="status"
+    >
+      <div className="h-8 w-56 rounded bg-slate-200 dark:bg-slate-800" />
+      <div className="h-4 w-full max-w-xl rounded bg-slate-200 dark:bg-slate-800" />
+      <div className="h-48 rounded-2xl bg-slate-100 dark:bg-slate-900" />
     </div>
   );
 }
@@ -66,14 +79,14 @@ function SignOutAndRedirect({
 }
 
 export function ProtectedRoute() {
-  const { error, loading, profile, session } = useAuth();
+  const { error, profile, session, status, signedOutMessage } = useAuth();
 
-  if (loading) {
-    return <RouteMessage messageKey="auth.messages.loading" />;
+  if (status === "initializing") {
+    return <RouteSkeleton />;
   }
 
-  if (!session) {
-    return <Navigate replace to="/login" />;
+  if (status === "signed_out" || !session) {
+    return <Navigate replace to="/login" state={signedOutMessage ?? undefined} />;
   }
 
   if (error) {
@@ -115,14 +128,14 @@ export function ProtectedRoute() {
 }
 
 export function PendingApprovalRoute() {
-  const { error, loading, profile, session } = useAuth();
+  const { error, profile, session, status, signedOutMessage } = useAuth();
 
-  if (loading && !(session && profile?.status === "pending")) {
-    return <RouteMessage messageKey="auth.messages.loading" />;
+  if (status === "initializing") {
+    return <RouteSkeleton />;
   }
 
-  if (!session) {
-    return <Navigate replace to="/login" />;
+  if (status === "signed_out" || !session) {
+    return <Navigate replace to="/login" state={signedOutMessage ?? undefined} />;
   }
 
   if (error) {
@@ -166,52 +179,17 @@ export function PendingApprovalRoute() {
 export function PermissionRoute({
   permission,
 }: {
-  permission: string;
+  permission: string | readonly string[];
 }) {
-  const { profile } = useAuth();
-  const [permissionKeys, setPermissionKeys] = useState<string[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const roleId = profile?.role_id;
+  const { error, permissions, profile, status } = useAuth();
 
-  useEffect(() => {
-    let mounted = true;
-
-    if (!roleId) {
-      setPermissionKeys([]);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setPermissionKeys(null);
-    setFailed(false);
-
-    void getRolePermissionKeys(roleId)
-      .then((keys) => {
-        if (mounted) {
-          setPermissionKeys(keys);
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setFailed(true);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [roleId]);
-
-  if (failed) {
-    return <RouteMessage messageKey="auth.errors.permissionsUnavailable" />;
-  }
-
-  if (permissionKeys === null) {
-    return <RouteMessage messageKey="auth.messages.checkingPermissions" />;
-  }
-
-  if (!permissionKeys.includes(permission)) {
+  if (status === "initializing") return <RouteSkeleton />;
+  if (error) return <RouteMessage messageKey={error.messageKey} />;
+  if (!profile) return <RouteMessage messageKey="auth.errors.profileUnavailable" />;
+  const requiredPermissions = Array.isArray(permission)
+    ? permission
+    : [permission];
+  if (!requiredPermissions.some((required) => permissions.includes(required))) {
     return <Navigate replace to="/not-allowed" />;
   }
 

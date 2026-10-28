@@ -1,5 +1,4 @@
-import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
+import { createPortal } from "react-dom";
 import type { Customer } from "../services/customers";
 import { CustomerCard } from "./CustomerCard";
 
@@ -17,41 +16,29 @@ export function CustomerCardPrint({ cards }: {
     noExpiry?: string;
   };
 }) {
-  const { i18n } = useTranslation();
-  const pages = useMemo(() => {
-    const result: PrintableCustomerCard[][] = [];
-    for (let index = 0; index < cards.length; index += 10) {
-      result.push(cards.slice(index, index + 10));
-    }
-    return result;
-  }, [cards]);
-
   if (cards.length === 0) return null;
 
-  return (
-    <section aria-hidden="true" className="customer-print-area">
-      {pages.map((page, pageIndex) => (
+  return createPortal(
+    <section className="customer-print-area" id="customer-print-area">
+      {cards.map(({ customer, qrDataUrl, studentTypeName }, pageIndex) => (
         <div className="customer-print-sheet" key={pageIndex}>
-          <div className="customer-print-grid">
-            {page.map(({ customer, qrDataUrl, studentTypeName }) => (
-              <CustomerCard
-                customer={{
-                  fullName: customer.full_name,
-                  studentType: studentTypeName,
-                  birthDate: new Intl.DateTimeFormat(i18n.language, {
-                    dateStyle: "medium",
-                  }).format(
-                    new Date(`${customer.birth_date.slice(0, 10)}T12:00:00`),
-                  ),
-                  code: customer.code,
-                }}
-                key={customer.id}
-                qrDataUrl={qrDataUrl}
-              />
-            ))}
-          </div>
+          <CustomerCard
+            customer={{
+              fullName: customer.full_name,
+              studentType: studentTypeName,
+              birthDate: formatDateOnly(customer.birth_date),
+              code: customer.code,
+            }}
+            qrDataUrl={qrDataUrl}
+          />
         </div>
       ))}
-    </section>
+    </section>,
+    document.body,
   );
+}
+
+function formatDateOnly(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
 }

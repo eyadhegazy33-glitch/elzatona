@@ -17,6 +17,7 @@ export function CustomerImportHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -50,17 +51,31 @@ export function CustomerImportHistoryPage() {
   };
 
   const downloadErrors = async (importId: string) => {
-    const errors = await getImportErrors(importId);
-    const csv = ["row_number,reason", ...errors.map((row) => `"${row.row_number}","${row.reason.replace(/"/g, '""')}"`)].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `import-errors-${importId}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    setDownloadingId(importId);
+    setError("");
+    try {
+      const errors = await getImportErrors(importId);
+      const csv = [
+        "row_number,reason",
+        ...errors.map(
+          (row) =>
+            `"${row.row_number}","${row.reason.replace(/"/g, '""')}"`,
+        ),
+      ].join("\n");
+      const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `import-errors-${importId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setError(t("customers.import.downloadErrorFailed"));
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   return (
@@ -138,7 +153,7 @@ export function CustomerImportHistoryPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <button className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200" onClick={() => void downloadErrors(item.id)} type="button">
+                        <button className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200" disabled={downloadingId === item.id} onClick={() => void downloadErrors(item.id)} type="button">
                           <Download size={14} />
                           {t("customers.import.downloadErrors")}
                         </button>

@@ -1,21 +1,29 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Printer, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { CustomerCard, type CustomerCardDetails } from "../components/CustomerCard";
 import { useAuth } from "../hooks/useAuth";
+import { useBranding } from "../hooks/useBranding";
+import { waitForPrintAssets } from "../lib/print";
 import { getCustomerQrToken, reissueQrToken } from "../services/customers";
 import {
   getCustomerCardRecords,
   getCustomerImportOptions,
+  getDatabaseErrorDetails,
   logCustomerCardPrint,
   type CustomerCardRecord,
   type CustomerImportOption,
 } from "../services/customerCards";
-import { getActiveStudentTypes, type StudentType } from "../services/customers";
-import { getRolePermissionKeys } from "../services/roles";
+import {
+  getActiveStudentTypes,
+  getStudentTypeName,
+  type StudentType,
+} from "../services/customers";
 
-const cardsPerPage = 10;
+const customerPageSize = 50;
+const maxSelectedCards = 500;
 
 function splitIntoRows<T>(items: T[], rowSize: number): T[][] {
   const rows: T[][] = [];
@@ -29,28 +37,28 @@ function backSideOrder<T>(items: T[]): T[] {
   return splitIntoRows(items, 2).flatMap((row) => row.reverse());
 }
 
-function formatDate(value: string, locale: string): string {
-  const date = new Date(`${value}T00:00:00`);
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(date);
+function formatDate(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
 export function CustomerCardsPrintPage() {
   const { i18n, t } = useTranslation();
-  const { profile } = useAuth();
+  const { permissions } = useAuth();
+  const { loading: brandingLoading } = useBranding();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [studentTypeId, setStudentTypeId] = useState("");
   const [createdToday, setCreatedToday] = useState(false);
   const [customers, setCustomers] = useState<CustomerCardRecord[]>([]);
+  const [knownCustomers, setKnownCustomers] = useState<
+    Record<string, CustomerCardRecord>
+  >({});
+  const [totalCustomers, setTotalCustomers] = useState(0);
   const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [imports, setImports] = useState<CustomerImportOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tokens, setTokens] = useState<Record<string, string>>({});
-  const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -59,76 +67,64 @@ export function CustomerCardsPrintPage() {
   const [error, setError] = useState("");
   const importId = searchParams.get("import") ?? "";
   const singleCustomerId = searchParams.get("customer") ?? "";
+  const canManage = permissions.includes("customers.edit");
+  const cardFilters = useMemo(
+    () => ({
+      search,
+      studentTypeId,
+      createdToday,
+      importId,
+      customerId: singleCustomerId || undefined,
+    }),
+    [createdToday, importId, search, singleCustomerId, studentTypeId],
+  );
 
   const refreshCustomers = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [records, types, importOptions] = await Promise.all([
+      const [page, types, importOptions] = await Promise.all([
         getCustomerCardRecords({
-          search,
-          studentTypeId,
-          createdToday,
-          importId,
-        }),
+          ...cardFilters,
+        }, { offset: 0, limit: customerPageSize }),
         getActiveStudentTypes(),
         getCustomerImportOptions(),
       ]);
-      setCustomers(records);
+      setCustomers(page.records);
+      setTotalCustomers(page.total);
+      setKnownCustomers((current) => ({
+        ...current,
+        ...Object.fromEntries(page.records.map((customer) => [customer.id, customer])),
+      }));
       setStudentTypes(types);
       setImports(importOptions);
       if (singleCustomerId) {
         setSelectedIds(
-          records.some((customer) => customer.id === singleCustomerId)
+          page.records.some((customer) => customer.id === singleCustomerId)
             ? [singleCustomerId]
             : [],
         );
       }
-    } catch {
-      setError(t("customerCards.errors.load"));
+    } catch (cause) {
+      const details = import.meta.env.DEV
+        ? getDatabaseErrorDetails(cause)
+        : "";
+      setError(
+        [t("customerCards.errors.load"), details].filter(Boolean).join(" — "),
+      );
     } finally {
       setLoading(false);
     }
-  }, [
-    createdToday,
-    importId,
-    search,
-    singleCustomerId,
-    studentTypeId,
-    t,
-  ]);
+  }, [cardFilters, singleCustomerId, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshCustomers(), 250);
     return () => window.clearTimeout(timer);
   }, [refreshCustomers]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!profile?.role_id) {
-      setCanManage(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void getRolePermissionKeys(profile.role_id)
-      .then((keys) => {
-        if (!cancelled) setCanManage(keys.includes("customers.edit"));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCanManage(false);
-          setError(t("customerCards.errors.permission"));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [profile?.role_id, t]);
-
   const selectedCustomers = useMemo(
-    () => customers.filter((customer) => selectedIds.includes(customer.id)),
-    [customers, selectedIds],
+    () => selectedIds.flatMap((id) => (knownCustomers[id] ? [knownCustomers[id]] : [])),
+    [knownCustomers, selectedIds],
   );
 
   useEffect(() => {
@@ -156,8 +152,8 @@ export function CustomerCardsPrintPage() {
             ] as const),
           );
           for (const [id, token] of values) nextTokens[id] = token;
-          if (!cancelled) setTokens((current) => ({ ...current, ...nextTokens }));
         }
+        if (!cancelled) setTokens((current) => ({ ...current, ...nextTokens }));
       } catch {
         if (!cancelled) setError(t("customerCards.errors.load"));
       } finally {
@@ -174,11 +170,13 @@ export function CustomerCardsPrintPage() {
     const entries = selectedCustomers.flatMap((customer) => {
       const token = tokens[customer.id];
       if (!token) return [];
-      const studentType = customer.student_type?.name ?? "";
+      const studentType = customer.student_type
+        ? getStudentTypeName(customer.student_type, i18n.language)
+        : "";
       const card: CustomerCardDetails = {
         fullName: customer.full_name,
         studentType: studentType ?? "",
-        birthDate: formatDate(customer.birth_date, i18n.language),
+        birthDate: formatDate(customer.birth_date),
         code: customer.code,
         qrToken: token,
       };
@@ -187,11 +185,21 @@ export function CustomerCardsPrintPage() {
     return new Map(entries);
   }, [i18n.language, selectedCustomers, tokens]);
   const printPages = useMemo(
-    () => splitIntoRows(selectedCustomers.filter((customer) => cardById.has(customer.id)), cardsPerPage),
+    () =>
+      selectedCustomers
+        .filter((customer) => cardById.has(customer.id))
+        .map((customer) => [customer]),
     [cardById, selectedCustomers],
   );
 
   const toggleCustomer = (customerId: string) => {
+    if (
+      !selectedIds.includes(customerId) &&
+      selectedIds.length >= maxSelectedCards
+    ) {
+      setError(t("customerCards.errors.maxSelected"));
+      return;
+    }
     setSelectedIds((current) =>
       current.includes(customerId)
         ? current.filter((id) => id !== customerId)
@@ -199,41 +207,88 @@ export function CustomerCardsPrintPage() {
     );
   };
 
-  const selectAllFiltered = () => {
-    setSelectedIds(customers.map((customer) => customer.id));
+  const selectAllFiltered = async () => {
+    setError("");
+    try {
+      const page = await getCustomerCardRecords(cardFilters, {
+        offset: 0,
+        limit: 500,
+      });
+      setKnownCustomers((current) => ({
+        ...current,
+        ...Object.fromEntries(page.records.map((customer) => [customer.id, customer])),
+      }));
+      const mergedIds = [
+        ...new Set([...selectedIds, ...page.records.map((customer) => customer.id)]),
+      ];
+      if (mergedIds.length > maxSelectedCards) {
+        setError(t("customerCards.errors.maxSelected"));
+        return;
+      }
+      setSelectedIds(mergedIds);
+    } catch (cause) {
+      const details = import.meta.env.DEV
+        ? getDatabaseErrorDetails(cause)
+        : "";
+      setError(
+        [t("customerCards.errors.load"), details].filter(Boolean).join(" — "),
+      );
+    }
+  };
+
+  const loadMoreCustomers = async () => {
+    if (loading || customers.length >= totalCustomers) return;
+    setLoading(true);
+    setError("");
+    try {
+      const page = await getCustomerCardRecords(cardFilters, {
+        offset: customers.length,
+        limit: customerPageSize,
+      });
+      setCustomers((current) => [...current, ...page.records]);
+      setKnownCustomers((current) => ({
+        ...current,
+        ...Object.fromEntries(page.records.map((customer) => [customer.id, customer])),
+      }));
+    } catch (cause) {
+      const details = import.meta.env.DEV
+        ? getDatabaseErrorDetails(cause)
+        : "";
+      setError(
+        [t("customerCards.errors.load"), details].filter(Boolean).join(" — "),
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const printCards = async () => {
-    if (printing || !cardById.size || loadingTokens) return;
+    if (printing || !cardById.size || loadingTokens || brandingLoading) return;
     setPrinting(true);
     setError("");
     try {
-      const deadline = Date.now() + 5000;
-      let printImages: HTMLImageElement[] = [];
-      while (Date.now() < deadline) {
-        printImages = Array.from(
-          document.querySelectorAll<HTMLImageElement>(
-            ".customer-print-pages .customer-card-qr img",
-          ),
-        );
-        if (
-          printImages.length === cardById.size &&
-          printImages.every((image) => image.complete && image.naturalWidth > 0)
-        ) {
-          break;
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-      }
-      if (
-        printImages.length !== cardById.size ||
-        printImages.some((image) => !image.complete || image.naturalWidth === 0)
-      ) {
+      const printRoot = document.getElementById("customer-print-pages");
+      if (!printRoot) {
         setError(t("customerCards.errors.qr"));
         return;
       }
-      await Promise.all(printImages.map((image) => image.decode()));
-      await logCustomerCardPrint(cardById.size);
+      await waitForPrintAssets(printRoot);
+      const printedCount = cardById.size;
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+      );
       window.print();
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            await logCustomerCardPrint(printedCount);
+          } catch {
+            setError(t("customerCards.errors.print"));
+          }
+        })();
+      }, 0);
     } catch {
       setError(t("customerCards.errors.print"));
     } finally {
@@ -283,7 +338,9 @@ export function CustomerCardsPrintPage() {
             </Link>
             <button
               className="inline-flex items-center gap-2 rounded-lg bg-[rgb(var(--color-primary))] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={!cardById.size || loadingTokens || printing}
+              disabled={
+                !cardById.size || loadingTokens || brandingLoading || printing
+              }
               onClick={() => void printCards()}
               type="button"
             >
@@ -299,55 +356,55 @@ export function CustomerCardsPrintPage() {
               <h2 className="font-semibold">{t("customerCards.chooseCustomers")}</h2>
               <button
                 className="text-sm font-medium text-[rgb(var(--color-primary))] disabled:opacity-50"
-                disabled={loading || customers.length === 0}
-                onClick={selectAllFiltered}
+                disabled={loading || customers.length === 0 || totalCustomers === 0}
+                onClick={() => void selectAllFiltered()}
                 type="button"
               >
-                {t("customerCards.selectAll", { count: customers.length })}
+                {t("customerCards.selectAll", { count: Math.min(totalCustomers, 500) })}
               </button>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm">
+            <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="grid min-w-0 gap-1 text-sm">
                 <span>{t("customerCards.search")}</span>
                 <input
-                  className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
+                  className="min-w-0 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder={t("customerCards.searchPlaceholder")}
                   value={search}
                 />
               </label>
-              <label className="grid gap-1 text-sm">
+              <label className="grid min-w-0 gap-1 text-sm">
                 <span>{t("customerCards.studentType")}</span>
                 <select
-                  className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
+                  className="min-w-0 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
                   onChange={(event) => setStudentTypeId(event.target.value)}
                   value={studentTypeId}
                 >
                   <option value="">{t("customerCards.allStudentTypes")}</option>
                   {studentTypes.map((studentType) => (
                     <option key={studentType.id} value={studentType.id}>
-                      {studentType.name}
+                      {getStudentTypeName(studentType, i18n.language)}
                     </option>
                   ))}
                 </select>
               </label>
-              <label className="grid gap-1 text-sm sm:col-span-2">
+              <label className="grid min-w-0 gap-1 text-sm md:col-span-2">
                 <span>{t("customerCards.import")}</span>
                 <select
-                  className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
+                  className="min-w-0 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700"
                   onChange={(event) => changeImport(event.target.value)}
                   value={importId}
                 >
                   <option value="">{t("customerCards.allImports")}</option>
                   {imports.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {formatDate(item.created_at.slice(0, 10), i18n.language)} ·{" "}
+                      {formatDate(item.created_at.slice(0, 10))} ·{" "}
                       {item.id.slice(0, 8)}
                     </option>
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <label className="flex min-w-0 items-center gap-2 text-sm md:col-span-2">
                 <input
                   checked={createdToday}
                   onChange={(event) => setCreatedToday(event.target.checked)}
@@ -380,11 +437,16 @@ export function CustomerCardsPrintPage() {
               ) : (
                 customers.map((customer) => (
                   <label
-                    className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"
+                    className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"
+                    data-testid="customer-card-selection-row"
                     key={customer.id}
                   >
                     <input
                       checked={selectedIds.includes(customer.id)}
+                      disabled={
+                        !selectedIds.includes(customer.id) &&
+                        selectedIds.length >= maxSelectedCards
+                      }
                       onChange={() => toggleCustomer(customer.id)}
                       type="checkbox"
                     />
@@ -427,8 +489,21 @@ export function CustomerCardsPrintPage() {
               )}
             </div>
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              {t("customerCards.selectedCount", { count: cardById.size })}
+              {t("customerCards.selectedCount", { count: selectedIds.length })}
             </p>
+            {!loading && customers.length < totalCustomers && (
+              <button
+                className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-slate-700"
+                disabled={loading}
+                onClick={() => void loadMoreCustomers()}
+                type="button"
+              >
+                {t("customerCards.loadMore", {
+                  loaded: customers.length,
+                  total: totalCustomers,
+                })}
+              </button>
+            )}
           </section>
 
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -470,41 +545,44 @@ export function CustomerCardsPrintPage() {
           </section>
         </div>
       </div>
-      <div className="customer-print-pages" aria-hidden="true">
-        {printPages.map((page, index) => (
-          <Fragment key={`page-${index}`}>
-            <div className="customer-print-sheet">
-              <div className="customer-print-grid">
-                {page.map((customer) => {
-                  const card = cardById.get(customer.id);
-                  return card ? (
-                    <CustomerCard
-                      customer={card}
-                      key={`front-${customer.id}`}
-                    />
-                  ) : null;
-                })}
-              </div>
-            </div>
-            {includeBack && (
+      {createPortal(
+        <div className="customer-print-pages" id="customer-print-pages">
+          {printPages.map((page, index) => (
+            <Fragment key={`page-${index}`}>
               <div className="customer-print-sheet">
                 <div className="customer-print-grid">
-                  {backSideOrder(page).map((customer) => {
+                  {page.map((customer) => {
                     const card = cardById.get(customer.id);
                     return card ? (
                       <CustomerCard
                         customer={card}
-                        face="back"
-                        key={`back-${customer.id}`}
+                        key={`front-${customer.id}`}
                       />
                     ) : null;
                   })}
                 </div>
               </div>
-            )}
-          </Fragment>
-        ))}
-      </div>
+              {includeBack && (
+                <div className="customer-print-sheet">
+                  <div className="customer-print-grid">
+                    {backSideOrder(page).map((customer) => {
+                      const card = cardById.get(customer.id);
+                      return card ? (
+                        <CustomerCard
+                          customer={card}
+                          face="back"
+                          key={`back-${customer.id}`}
+                        />
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
+            </Fragment>
+          ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ create sequence public.customer_code_seq;
 
 create type public.customer_status as enum ('active', 'blocked', 'expired');
 
-create table public.student_types (
+create table if not exists public.student_types (
   id uuid primary key default gen_random_uuid(),
   name_en text not null unique,
   name_ar text not null,
@@ -11,8 +11,12 @@ create table public.student_types (
 );
 
 insert into public.student_types (name_en, name_ar)
-values ('General', 'عام')
-on conflict (name_en) do nothing;
+values
+  ('American Student', 'طالب أمريكي'),
+  ('Invited Student', 'طالب مدعو')
+on conflict (name_en) do update
+set name_ar = excluded.name_ar,
+    is_active = true;
 
 create table public.customers (
   id uuid primary key default gen_random_uuid(),
@@ -38,7 +42,7 @@ create table public.customers (
   constraint customers_last_name_length check (length(btrim(last_name)) between 2 and 50),
   constraint customers_birth_date_not_future check (birth_date <= current_date),
   constraint customers_phone_valid check (
-    phone is null or phone ~ '^[0-9 +\-]+$'
+    phone is null or phone ~ '^[0-9 +-]+$'
   ),
   constraint customers_notes_length check (notes is null or length(notes) <= 2000)
 );
@@ -166,7 +170,7 @@ begin
     raise exception 'invalid student type';
   end if;
   if nullif(btrim(p_phone), '') is not null
-     and btrim(p_phone) !~ '^[0-9 +\-]+$' then
+     and btrim(p_phone) !~ '^[0-9 +-]+$' then
     raise exception 'invalid phone';
   end if;
   if p_notes is not null and length(p_notes) > 2000 then
@@ -224,7 +228,7 @@ begin
     raise exception 'invalid student type';
   end if;
   if nullif(btrim(p_phone), '') is not null
-     and btrim(p_phone) !~ '^[0-9 +\-]+$' then
+     and btrim(p_phone) !~ '^[0-9 +-]+$' then
     raise exception 'invalid phone';
   end if;
   if p_notes is not null and length(p_notes) > 2000 then

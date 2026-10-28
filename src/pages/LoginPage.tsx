@@ -5,11 +5,6 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
-import {
-  AuthCaptcha,
-  isAuthCaptchaConfigured,
-  type AuthCaptchaHandle,
-} from "../components/AuthCaptcha";
 import { BrandingIdentity } from "../components/BrandingIdentity";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -42,8 +37,6 @@ export function LoginPage() {
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const submitStarted = useRef(false);
-  const captchaRef = useRef<AuthCaptchaHandle>(null);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const routeState = location.state as
     | { messageKey?: unknown; reason?: unknown }
     | null;
@@ -95,11 +88,7 @@ export function LoginPage() {
     setAccountMessage(null);
 
     try {
-      if (isAuthCaptchaConfigured && !captchaToken) {
-        return;
-      }
-
-      const { user } = await signIn(email, password, captchaToken ?? undefined);
+      const { user } = await signIn(email, password);
       const profile = await getProfileForUser(user.id);
 
       if (!profile) {
@@ -151,7 +140,6 @@ export function LoginPage() {
         }
       }
     } finally {
-      captchaRef.current?.reset();
       submitStarted.current = false;
     }
   });
@@ -283,8 +271,6 @@ export function LoginPage() {
               )}
             </div>
 
-            <AuthCaptcha ref={captchaRef} onTokenChange={setCaptchaToken} />
-
             {submitError && (
               <p
                 className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
@@ -318,8 +304,7 @@ export function LoginPage() {
               className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand/90 focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus:ring-offset-slate-900"
               disabled={
                 isSubmitting ||
-                lockedOut ||
-                (isAuthCaptchaConfigured && !captchaToken)
+                lockedOut
               }
               type="submit"
             >

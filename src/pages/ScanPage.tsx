@@ -7,12 +7,17 @@ import {
   DoorOpen,
   LoaderCircle,
   ShieldAlert,
+  ShoppingBasket,
+  Timer,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 import { getSupabaseClient } from "../lib/supabase";
-import { getResources, type Resource } from "../services/resources";
+import { useResources } from "../hooks/useResources";
+import { getStudentTypeName } from "../services/customers";
 
 type ScanReason = "ok" | "blocked" | "expired" | "unknown";
 
@@ -22,16 +27,21 @@ type ScanCustomerPayload = {
   first_name: string;
   last_name: string;
   birth_date: string;
-  student_type?: { name: string } | null;
+  student_type?: { name_en: string; name_ar: string } | null;
 };
 
 type ScanResponse = {
   ok: boolean;
   reason: ScanReason;
+  deadline?: string | null;
+  warning_at?: string | null;
+  server_now?: string;
   customer?: ScanCustomerPayload;
   checkin?: {
     id: number;
     checked_in_at: string;
+    timer_started_at?: string;
+    last_qualifying_order_at?: string | null;
     resource_id?: string | null;
     customer_id?: string;
   } | null;
@@ -40,7 +50,9 @@ type ScanResponse = {
 type LiveInsideRow = {
   id: number;
   checked_in_at: string;
-  customer?: { first_name: string; last_name: string } | null;
+  customer_id: string;
+  resource_id: string | null;
+  customer?: { id: string; code: string; first_name: string; last_name: string } | null;
   resource?: { id: string; name: string; type: string } | null;
 };
 
@@ -53,6 +65,60 @@ type LastScanState = {
 
 const SCAN_COOLDOWN_MS = 3000;
 const RESULT_RESET_MS = 5000;
+const CAMERA_DEVICE_STORAGE_KEY = "elzatona.camera.deviceId";
+
+function getCameraError(error: unknown) {
+  const name = error instanceof DOMException
+    ? error.name
+    : error instanceof Error
+      ? error.name
+      : "UnknownError";
+  const keyByName: Record<string, string> = {
+    NotAllowedError: "scan.camera.permissionDenied",
+    NotFoundError: "scan.camera.notFound",
+    DevicesNotFoundError: "scan.camera.notFound",
+    NotReadableError: "scan.camera.inUse",
+    TrackStartError: "scan.camera.inUse",
+    OverconstrainedError: "scan.camera.overconstrained",
+    ConstraintNotSatisfiedError: "scan.camera.overconstrained",
+    SecurityError: "scan.camera.secureContext",
+    AbortError: "scan.camera.aborted",
+  };
+  return { key: keyByName[name] ?? "scan.camera.startFailed", name };
+}
+
+function formatBirthDate(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function getFriendlyScanError(message: string, t: (key: string) => string) {
+  const normalized = message.toLowerCase();
+  const keys: Array<[string, string]> = [
+    ["already checked in", "scan.errors.alreadyCheckedIn"],
+    ["resource is full", "scan.errors.resourceFull"],
+    ["resource not available", "scan.errors.resourceNotAvailable"],
+    ["customer not allowed to enter", "scan.errors.customerNotAllowed"],
+    ["customer not found", "scan.errors.customerNotFound"],
+    ["open shift required", "scan.errors.openShiftRequired"],
+    ["not allowed", "scan.errors.notAllowed"],
+  ];
+  return t(keys.find(([phrase]) => normalized.includes(phrase))?.[1] ?? "scan.errors.general");
+}
+
+function extractFeesDue(data: unknown): { amount: number; currency: string } {
+  if (typeof data === "number") return { amount: data, currency: "EGP" };
+  if (Array.isArray(data)) return extractFeesDue(data[0]);
+  if (data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    const amount = record.fees_due ?? record.feesDue;
+    return {
+      amount: typeof amount === "number" ? amount : Number(amount) || 0,
+      currency: typeof record.currency === "string" ? record.currency : "EGP",
+    };
+  }
+  return { amount: 0, currency: "EGP" };
+}
 
 function formatDateTime(value: string, locale: string) {
   const date = new Date(value);
@@ -62,16 +128,20 @@ function formatDateTime(value: string, locale: string) {
   }).format(date);
 }
 
-function formatInsideDuration(value: string) {
-  const started = new Date(value).getTime();
-  const diffMs = Date.now() - started;
-  const totalMinutes = Math.max(0, Math.floor(diffMs / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+function formatMoney(
+  amount: number,
+  currency: string,
+  locale: string,
+): string {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+    }).format(amount);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return `${amount.toFixed(2)} ${currency}`;
   }
-  return `${minutes}m`;
 }
 
 function playAlert(kind: "success" | "error", muted: boolean) {
@@ -89,19 +159,44 @@ function playAlert(kind: "success" | "error", muted: boolean) {
   oscillator.connect(gain);
   gain.connect(context.destination);
 
+  oscillator.addEventListener("ended", () => {
+    void context.close();
+  }, { once: true });
   oscillator.start();
   oscillator.stop(context.currentTime + (kind === "success" ? 0.12 : 0.18));
-  void context.close();
 }
 
 export function ScanPage() {
   const { i18n, t } = useTranslation();
+  const navigate = useNavigate();
+  const { permissions } = useAuth();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerLifecycleRef = useRef<Promise<void>>(Promise.resolve());
+  const scannerRunningRef = useRef(false);
+  const stopScannerRef = useRef<() => Promise<void>>(async () => undefined);
+  const testVideoRef = useRef<HTMLVideoElement | null>(null);
+  const testStreamRef = useRef<MediaStream | null>(null);
+  const testTimerRef = useRef<number | null>(null);
   const lastScanRef = useRef<LastScanState | null>(null);
+  const resultResetTimerRef = useRef<number | null>(null);
+  const handleScanValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
   const [manualCode, setManualCode] = useState("");
   const [result, setResult] = useState<ScanResponse | null>(null);
-  const [cameraError, setCameraError] = useState("");
-  const [availableResources, setAvailableResources] = useState<Resource[]>([]);
+  const [cameraError, setCameraError] = useState<{
+    message: string;
+    name?: string;
+  } | null>(null);
+  const [cameraDevices, setCameraDevices] = useState<Array<{ id: string; label: string }>>([]);
+  const [cameraDeviceId, setCameraDeviceId] = useState(() =>
+    window.localStorage.getItem(CAMERA_DEVICE_STORAGE_KEY) ?? "",
+  );
+  const [testingCamera, setTestingCamera] = useState(false);
+  const [cameraTestResult, setCameraTestResult] = useState<{
+    message: string;
+    success: boolean;
+  } | null>(null);
+  const { resources: availableResources, reload: reloadResources } = useResources({ onlyUsable: true });
   const [selectedResourceId, setSelectedResourceId] = useState("");
   const [insideNow, setInsideNow] = useState<LiveInsideRow[]>([]);
   const [lastScans, setLastScans] = useState<LastScanState[]>([]);
@@ -110,39 +205,101 @@ export function ScanPage() {
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<"checkin" | "checkout" | null>(null);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [cameraStartAttempt, setCameraStartAttempt] = useState(0);
+  const [insideError, setInsideError] = useState(false);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
+  const [clockTick, setClockTick] = useState(() => Date.now());
+  const [timerError, setTimerError] = useState(false);
 
   const currentLocale = i18n.language || "en";
+  const remainingMs = result?.deadline
+    ? Math.max(
+        0,
+        new Date(result.deadline).getTime() -
+          (clockTick + serverClockOffsetMs),
+      )
+    : null;
+  const remainingSeconds =
+    remainingMs === null ? null : Math.floor(remainingMs / 1000);
+  const timerInWarningPeriod = Boolean(
+    result?.warning_at &&
+    Date.parse(result.warning_at) <= clockTick + serverClockOffsetMs &&
+    remainingSeconds !== null &&
+    remainingSeconds > 0,
+  );
 
-  const refreshResources = useCallback(async () => {
-    try {
-      const data = await getResources();
-      const active = data.filter(
-        (resource) =>
-          resource.active && resource.status === "available" && resource.occupancy < resource.capacity,
-      );
-      setAvailableResources(active);
-      if (!selectedResourceId && active[0]) {
-        setSelectedResourceId(active[0].id);
-      }
-    } catch {
-      setAvailableResources([]);
+  useEffect(() => {
+    if (!result?.deadline) return;
+    const timerId = window.setInterval(() => setClockTick(Date.now()), 1000);
+    return () => window.clearInterval(timerId);
+  }, [result?.deadline]);
+
+  const resetResult = useCallback(() => {
+    setResult(null);
+    setToast(null);
+    resultResetTimerRef.current = null;
+    inputRef.current?.focus();
+  }, []);
+
+  const scheduleResultReset = useCallback(() => {
+    if (resultResetTimerRef.current !== null) {
+      window.clearTimeout(resultResetTimerRef.current);
     }
-  }, [selectedResourceId]);
+    resultResetTimerRef.current = window.setTimeout(
+      resetResult,
+      RESULT_RESET_MS,
+    );
+  }, [resetResult]);
 
   const refreshInsideNow = useCallback(async () => {
     const client = getSupabaseClient();
-    const { data, error } = await client
+    const checkinsResult = await client
       .from("checkins")
-      .select(
-        "id, checked_in_at, customer_id, resource_id, customer:customers(id, first_name, last_name), resource:resources(id, name, type)",
-      )
+      .select("id, checked_in_at, customer_id, resource_id")
       .is("checked_out_at", null)
       .order("checked_in_at", { ascending: false })
       .limit(20);
 
-    if (!error) {
-      setInsideNow((data ?? []) as unknown as LiveInsideRow[]);
+    if (checkinsResult.error) {
+      setInsideError(true);
+      return;
     }
+    const rows = (checkinsResult.data ?? []) as Array<{
+      id: number;
+      checked_in_at: string;
+      customer_id: string;
+      resource_id: string | null;
+    }>;
+    if (rows.length === 0) {
+      setInsideNow([]);
+      setInsideError(false);
+      return;
+    }
+
+    const customerIds = [...new Set(rows.map((row) => row.customer_id))];
+    const resourceIds = [...new Set(rows.map((row) => row.resource_id).filter(Boolean))] as string[];
+    const [customersResult, resourcesResult] = await Promise.all([
+      client
+        .from("customers")
+        .select("id, code, first_name, last_name")
+        .in("id", customerIds),
+      resourceIds.length
+        ? client.from("resources").select("id, name, type").in("id", resourceIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (customersResult.error || resourcesResult.error) {
+      setInsideError(true);
+      return;
+    }
+    const customersById = new Map((customersResult.data ?? []).map((customer) => [customer.id, customer]));
+    const resourcesById = new Map((resourcesResult.data ?? []).map((resource) => [resource.id, resource]));
+    setInsideNow(rows.map((row) => ({
+      ...row,
+      customer: customersById.get(row.customer_id),
+      resource: row.resource_id ? resourcesById.get(row.resource_id) : null,
+    })));
+    setInsideError(false);
   }, []);
 
   const loadCustomerMeta = useCallback(async (customerId: string) => {
@@ -150,7 +307,7 @@ export function ScanPage() {
     const { data, error } = await client
       .from("customers")
       .select(
-        "id, code, first_name, last_name, birth_date, student_type:student_types(name)",
+        "id, code, first_name, last_name, birth_date, student_type:student_types(name_en, name_ar)",
       )
       .eq("id", customerId)
       .single();
@@ -171,6 +328,11 @@ export function ScanPage() {
       if (!normalized) {
         return;
       }
+      if (resultResetTimerRef.current !== null) {
+        window.clearTimeout(resultResetTimerRef.current);
+        resultResetTimerRef.current = null;
+      }
+      setToast(null);
 
       const now = Date.now();
       const previous = lastScanRef.current;
@@ -178,7 +340,15 @@ export function ScanPage() {
         return;
       }
       lastScanRef.current = { value: normalized, at: now };
-      setLastScans((current) => [{ value: normalized, at: now }, ...current].slice(0, 10));
+      setSelectedResourceId("");
+      setTimerError(false);
+      setServerClockOffsetMs(0);
+      const scanHint = normalized.length > 4
+        ? `${normalized.slice(0, 4)}...`
+        : normalized;
+      setLastScans((current) =>
+        [{ value: scanHint, at: now }, ...current].slice(0, 10),
+      );
       setManualCode("");
 
       try {
@@ -193,6 +363,9 @@ export function ScanPage() {
         }
 
         const payload = data as ScanResponse | null;
+        if (payload?.server_now) {
+          setServerClockOffsetMs(Date.parse(payload.server_now) - Date.now());
+        }
         const fullData = payload && payload.customer
           ? {
               ...payload,
@@ -212,7 +385,7 @@ export function ScanPage() {
         }
 
         if (fullData?.ok) {
-          await refreshResources();
+          await reloadResources();
           await refreshInsideNow();
         }
       } catch (error: unknown) {
@@ -227,6 +400,7 @@ export function ScanPage() {
           customer: undefined,
           checkin: null,
         });
+        setServerClockOffsetMs(0);
         setToast({
           kind: "error",
           message: message || t("scan.errors.general"),
@@ -239,140 +413,315 @@ export function ScanPage() {
         }, 0);
       }
     },
-    [loadCustomerMeta, muted, refreshInsideNow, refreshResources, t],
+    [loadCustomerMeta, muted, refreshInsideNow, reloadResources, t],
   );
+
+  handleScanValueRef.current = handleScanValue;
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
   useEffect(() => {
-    void refreshResources();
     void refreshInsideNow();
-  }, [refreshInsideNow, refreshResources]);
+  }, [refreshInsideNow]);
+
+  useEffect(
+    () => () => {
+      if (resultResetTimerRef.current !== null) {
+        window.clearTimeout(resultResetTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const client = getSupabaseClient();
+    let timeout: number | null = null;
+    const refreshFromRealtime = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        void refreshInsideNow();
+        void reloadResources();
+      }, 1000);
+    };
     const channel = client.channel("scan-checkins-live");
-
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "checkins" },
-      () => {
-        void refreshInsideNow();
-        void refreshResources();
-      },
+      refreshFromRealtime,
     );
-
     void channel.subscribe();
 
     return () => {
+      if (timeout !== null) window.clearTimeout(timeout);
       void client.removeChannel(channel);
     };
-  }, [refreshInsideNow, refreshResources]);
+  }, [refreshInsideNow, reloadResources]);
 
   useEffect(() => {
-    let cancelled = false;
-    let scanner: Html5Qrcode | null = null;
-    const startScanner = async () => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        if (!cancelled) {
-          setCameraError(t("scan.camera.unsupported"));
+    let disposed = false;
+
+    const stopScanner = async (clear = true) => {
+      const scanner = scannerRef.current;
+      if (scanner && scannerRunningRef.current) {
+        try {
+          await scanner.stop();
+        } catch {
+          // stop() can reject when StrictMode already stopped it.
         }
+        scannerRunningRef.current = false;
+      }
+      if (scanner && clear) {
+        try {
+          scanner.clear();
+        } catch {
+          // Clearing is safe after stop or a failed start.
+        }
+        if (scannerRef.current === scanner) scannerRef.current = null;
+      }
+    };
+    stopScannerRef.current = () => stopScanner(true);
+
+    const startScanner = async () => {
+      if (
+        disposed ||
+        document.hidden ||
+        testingCamera ||
+        scannerRunningRef.current
+      ) return;
+
+      if (!window.isSecureContext) {
+        setCameraError({ message: t("scan.camera.secureContext"), name: "SecurityError" });
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError({ message: t("scan.camera.unsupported"), name: "MediaDevicesUnavailable" });
         return;
       }
 
       try {
-        scanner = new Html5Qrcode("scanner-reader");
-        await scanner.start(
-          { facingMode: { ideal: "environment" } },
-          { fps: 10, qrbox: { width: 260, height: 260 } },
-          async (decodedText) => {
-            await handleScanValue(decodedText);
-          },
-          () => undefined,
-        );
-
-        if (!cancelled) {
-          setCameraError("");
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "camera" as PermissionName });
+          if (permission.state === "denied") {
+            setCameraError({ message: t("scan.camera.permissionDenied"), name: "NotAllowedError" });
+            return;
+          }
         }
       } catch {
-        if (!cancelled) {
-          setCameraError(t("scan.camera.permissionDenied"));
+        // Some browsers omit or reject the camera permission query.
+      }
+
+      let devices: Array<{ id: string; label: string }> = [];
+      try {
+        devices = await Html5Qrcode.getCameras();
+        if (!disposed) setCameraDevices(devices);
+      } catch {
+        // The fallback-facing constraints can still open a camera in this browser.
+      }
+      if (disposed || devices.length === 0 && !window.isSecureContext) return;
+
+      const constraints: Array<Record<string, unknown>> = [
+        ...(cameraDeviceId
+          ? [{ deviceId: { exact: cameraDeviceId } }]
+          : []),
+        { facingMode: { ideal: "environment" } },
+        { facingMode: { ideal: "user" } },
+        ...(devices[0] ? [{ deviceId: { exact: devices[0].id } }] : []),
+      ];
+
+      let lastError: unknown = null;
+      for (const constraint of constraints) {
+        if (disposed || document.hidden) return;
+        await stopScanner(true);
+        const scanner = new Html5Qrcode("scanner-reader");
+        scannerRef.current = scanner;
+        try {
+          await scanner.start(
+            constraint,
+            { fps: 12, qrbox: { width: 260, height: 260 }, aspectRatio: 1.7777778 },
+            async (decodedText) => {
+              await handleScanValueRef.current(decodedText);
+            },
+            () => undefined,
+          );
+          scannerRunningRef.current = true;
+          if (disposed) {
+            await stopScanner(true);
+            return;
+          }
+          setCameraError(null);
+          return;
+        } catch (error) {
+          lastError = error;
+          try { scanner.clear(); } catch { /* failed start has no active stream */ }
+          scannerRef.current = null;
         }
       }
-    };
 
-    void startScanner();
-
-    return () => {
-      cancelled = true;
-      if (scanner) {
-        void scanner.stop().catch(() => undefined);
-        scanner.clear();
+      if (!disposed) {
+        const errorDetails = getCameraError(lastError);
+        setCameraError({
+          message: t(errorDetails.key),
+          name: errorDetails.name,
+        });
       }
     };
-  }, [handleScanValue, t]);
 
-  useEffect(() => {
-    if (!result || !result.ok || !result.customer) {
-      return;
+    const queueStart = () => {
+      scannerLifecycleRef.current = scannerLifecycleRef.current
+        .catch(() => undefined)
+        .then(startScanner);
+    };
+    const queueStop = () => {
+      scannerLifecycleRef.current = scannerLifecycleRef.current
+        .catch(() => undefined)
+        .then(() => stopScanner(true));
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) queueStop();
+      else queueStart();
+    };
+
+    queueStart();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      queueStop();
+    };
+  }, [cameraStartAttempt, cameraDeviceId, testingCamera, t]);
+
+  const handleTestCamera = async () => {
+    setTestingCamera(true);
+    setCameraTestResult(null);
+    let stream: MediaStream | null = null;
+    try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        throw new DOMException("Secure camera access is unavailable", "SecurityError");
+      }
+      scannerLifecycleRef.current = scannerLifecycleRef.current
+        .catch(() => undefined)
+        .then(() => stopScannerRef.current());
+      await scannerLifecycleRef.current;
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      testStreamRef.current = stream;
+      if (!testVideoRef.current) throw new Error("Camera preview is unavailable");
+      testVideoRef.current.srcObject = stream;
+      await testVideoRef.current.play();
+      setCameraTestResult({ success: true, message: t("scan.camera.testSuccess") });
+      testTimerRef.current = window.setTimeout(() => {
+        stream?.getTracks().forEach((track) => track.stop());
+        testStreamRef.current = null;
+        testTimerRef.current = null;
+        if (testVideoRef.current) testVideoRef.current.srcObject = null;
+        setTestingCamera(false);
+      }, 3000);
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      testStreamRef.current = null;
+      if (testVideoRef.current) testVideoRef.current.srcObject = null;
+      const details = getCameraError(error);
+      setCameraTestResult({
+        success: false,
+        message: `${t(details.key)} (${details.name})`,
+      });
+      setTestingCamera(false);
     }
+  };
 
-    const timer = window.setTimeout(() => {
-      setResult(null);
-      setToast(null);
-    }, RESULT_RESET_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [result]);
+  useEffect(
+    () => () => {
+      if (testTimerRef.current !== null) {
+        window.clearTimeout(testTimerRef.current);
+      }
+      testStreamRef.current?.getTracks().forEach((track) => track.stop());
+      testStreamRef.current = null;
+    },
+    [],
+  );
 
   const handleManualSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!manualCode.trim() || isSubmittingManual) return;
     setIsSubmittingManual(true);
-    await handleScanValue(manualCode);
-    setIsSubmittingManual(false);
+    try {
+      await handleScanValue(manualCode);
+    } finally {
+      setIsSubmittingManual(false);
+      inputRef.current?.focus();
+    }
   };
 
   const handleCheckIn = async () => {
-    if (!result?.customer || !selectedResourceId || actionBusy) return;
+    if (!result?.ok || result.checkin || !result.customer || actionBusy) return;
 
     setActionBusy("checkin");
     setToast(null);
 
     try {
       const client = getSupabaseClient();
-      const { error } = await client.rpc("check_in", {
+      const { data, error } = await client.rpc("check_in", {
         p_customer: result.customer.id,
-        p_resource: selectedResourceId,
+        p_resource: selectedResourceId || null,
       });
 
-      if (error) {
-        throw error;
+      if (error) throw error;
+      const { data: timerData, error: timerRequestError } = await client.rpc(
+        "get_visit_timer",
+        { p_checkin: data.id },
+      );
+      const timerRecord =
+        timerData &&
+        typeof timerData === "object" &&
+        !Array.isArray(timerData)
+          ? timerData
+          : null;
+      const deadline =
+        timerRecord && typeof timerRecord.deadline === "string"
+          ? timerRecord.deadline
+          : null;
+      const serverNow =
+        timerRecord && typeof timerRecord.server_now === "string"
+          ? timerRecord.server_now
+          : null;
+      const warningAt =
+        timerRecord && typeof timerRecord.warning_at === "string"
+          ? timerRecord.warning_at
+          : null;
+      setTimerError(Boolean(timerRequestError || !deadline || !serverNow));
+      if (serverNow) {
+        setServerClockOffsetMs(Date.parse(serverNow) - Date.now());
       }
 
+      setResult((current) =>
+        current && current.customer?.id === result.customer?.id
+          ? {
+              ...current,
+              checkin: {
+                id: data.id,
+                checked_in_at: data.checked_in_at,
+                timer_started_at: data.timer_started_at,
+                resource_id: data.resource_id,
+                customer_id: data.customer_id,
+              },
+              deadline,
+              warning_at: warningAt,
+              server_now: serverNow ?? undefined,
+            }
+          : current,
+      );
       setToast({ kind: "success", message: t("scan.toast.checkedIn") });
       playAlert("success", muted);
-      await refreshResources();
+      scheduleResultReset();
+      await reloadResources();
       await refreshInsideNow();
-      setTimeout(() => setResult(null), 5000);
     } catch (error: unknown) {
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String((error as { message?: string }).message)
-          : "";
-
-      const normalized = message.toLowerCase();
-      let friendly = t("scan.errors.general");
-      if (normalized.includes("resource is full")) {
-        friendly = t("scan.errors.resourceFull");
-      } else if (normalized.includes("already checked in")) {
-        friendly = t("scan.errors.alreadyCheckedIn");
-      } else if (normalized.includes("customer not allowed to enter")) {
-        friendly = t("scan.errors.customerNotAllowed");
-      }
-      setToast({ kind: "error", message: friendly });
+      const message = error && typeof error === "object" && "message" in error
+        ? String((error as { message?: string }).message)
+        : "";
+      setToast({ kind: "error", message: getFriendlyScanError(message, t) });
       playAlert("error", muted);
     } finally {
       setActionBusy(null);
@@ -387,26 +736,70 @@ export function ScanPage() {
 
     try {
       const client = getSupabaseClient();
-      const { error } = await client.rpc("check_out", {
+      const { data, error } = await client.rpc("check_out", {
         p_checkin: result.checkin.id,
       });
 
-      if (error) {
-        throw error;
-      }
-
-      setToast({ kind: "success", message: t("scan.toast.checkedOut") });
+      if (error) throw error;
+      const feesDue = extractFeesDue(data);
+      setToast({
+        kind: "success",
+        message: feesDue.amount > 0
+          ? t("scan.toast.checkedOutWithFees", {
+              amount: formatMoney(feesDue.amount, feesDue.currency, currentLocale),
+            })
+          : t("scan.toast.checkedOut"),
+      });
       playAlert("success", muted);
-      await refreshResources();
+      scheduleResultReset();
+      await reloadResources();
       await refreshInsideNow();
-      setTimeout(() => setResult(null), 5000);
     } catch (error: unknown) {
       const message =
         error && typeof error === "object" && "message" in error
           ? String((error as { message?: string }).message)
           : "";
 
-      setToast({ kind: "error", message: message || t("scan.errors.general") });
+      setToast({ kind: "error", message: getFriendlyScanError(message, t) });
+      playAlert("error", muted);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleInsideNowCheckOut = async (row: LiveInsideRow) => {
+    if (actionBusy) return;
+    setActionBusy("checkout");
+    setToast(null);
+    try {
+      const { data, error } = await getSupabaseClient().rpc("check_out", {
+        p_checkin: Number(row.id),
+      });
+      if (error) throw error;
+
+      const feesDue = extractFeesDue(data);
+      setToast({
+        kind: "success",
+        message:
+          feesDue.amount > 0
+            ? t("scan.toast.checkedOutWithFees", {
+                amount: formatMoney(feesDue.amount, feesDue.currency, currentLocale),
+              })
+            : t("scan.toast.checkedOut"),
+      });
+      playAlert("success", muted);
+      scheduleResultReset();
+      await refreshInsideNow();
+      await reloadResources();
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message?: string }).message)
+          : "";
+      setToast({
+        kind: "error",
+        message: getFriendlyScanError(message, t),
+      });
       playAlert("error", muted);
     } finally {
       setActionBusy(null);
@@ -441,7 +834,7 @@ export function ScanPage() {
           type="button"
         >
           {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-          {muted ? t("scan.actions.mute") : t("scan.actions.unmute")}
+          {muted ? t("scan.actions.unmute") : t("scan.actions.mute")}
         </button>
       </div>
 
@@ -458,7 +851,7 @@ export function ScanPage() {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[1.5fr_0.9fr]">
+      <div className="grid grid-cols-1 gap-5">
         <section className="space-y-5">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between gap-3">
@@ -474,14 +867,69 @@ export function ScanPage() {
               )}
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
-              <div id="scanner-reader" className="min-h-[290px] w-full bg-black/80" />
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1">
+                <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {t("scan.camera.device")}
+                </span>
+                <select
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  onChange={(event) => {
+                    const deviceId = event.target.value;
+                    setCameraDeviceId(deviceId);
+                    if (deviceId) window.localStorage.setItem(CAMERA_DEVICE_STORAGE_KEY, deviceId);
+                    else window.localStorage.removeItem(CAMERA_DEVICE_STORAGE_KEY);
+                  }}
+                  value={cameraDeviceId}
+                >
+                  <option value="">{t("scan.camera.auto")}</option>
+                  {cameraDevices.map((device, index) => (
+                    <option key={device.id} value={device.id}>
+                      {device.label || `${t("scan.camera.cameraNumber")} ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={testingCamera}
+                onClick={() => void handleTestCamera()}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-60 dark:border-slate-700"
+              >
+                {testingCamera ? t("scan.camera.testing") : t("scan.camera.test")}
+              </button>
             </div>
 
-            {cameraError && (
-              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-                {cameraError}
+            <div className="mt-4 aspect-video w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-950 dark:border-slate-700">
+              <div id="scanner-reader" className="h-full w-full" />
+            </div>
+            <video
+              ref={testVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className={`mt-3 aspect-video w-full rounded-xl bg-black ${testingCamera ? "block" : "hidden"}`}
+            />
+            {cameraTestResult && (
+              <p className={`mt-2 text-sm ${cameraTestResult.success ? "text-emerald-600" : "text-red-600"}`}>
+                {cameraTestResult.message}
               </p>
+            )}
+
+            {cameraError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                <p>{cameraError.message}</p>
+                {cameraError.name && (
+                  <p className="mt-1 text-xs opacity-75">{cameraError.name}</p>
+                )}
+                <button
+                  type="button"
+                  className="mt-2 rounded-md border border-current px-3 py-1.5 font-semibold"
+                  onClick={() => setCameraStartAttempt((attempt) => attempt + 1)}
+                >
+                  {t("scan.camera.retry")}
+                </button>
+              </div>
             )}
 
             <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleManualSubmit}>
@@ -491,12 +939,8 @@ export function ScanPage() {
               <input
                 id="manual-code"
                 ref={inputRef}
+                autoComplete="off"
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base outline-none ring-0 focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    void handleManualSubmit(event as unknown as React.FormEvent);
-                  }
-                }}
                 onChange={(event) => setManualCode(event.target.value)}
                 placeholder={t("scan.manual.placeholder")}
                 value={manualCode}
@@ -571,7 +1015,7 @@ export function ScanPage() {
                       {t("scan.fields.birthDate")}
                     </p>
                     <p className="mt-1 text-base font-medium">
-                      {formatDateTime(`${result.customer.birth_date}T00:00:00`, currentLocale)}
+                      {formatBirthDate(result.customer.birth_date)}
                     </p>
                   </div>
                   <div>
@@ -579,7 +1023,12 @@ export function ScanPage() {
                       {t("scan.fields.studentType")}
                     </p>
                     <p className="mt-1 text-base font-medium">
-                      {result.customer.student_type?.name || t("scan.fields.unknownType")}
+                      {result.customer.student_type
+                        ? getStudentTypeName(
+                            result.customer.student_type,
+                            i18n.language,
+                          )
+                        : t("scan.fields.unknownType")}
                     </p>
                   </div>
                 </div>
@@ -587,10 +1036,28 @@ export function ScanPage() {
 
               {result.ok && result.checkin?.checked_in_at && (
                 <div className="mt-4 rounded-lg border border-current/20 bg-black/5 px-3 py-2 text-sm dark:bg-white/5">
-                  <span className="font-semibold">{t("scan.status.alreadyInside")}</span>
-                  {" "}
-                  {formatDateTime(result.checkin.checked_in_at, currentLocale)}
+                  <span className="font-semibold">{t("scan.status.alreadyInsideSince", { time: formatDateTime(result.checkin.checked_in_at, currentLocale) })}</span>
                 </div>
+              )}
+              {result.ok && result.checkin && remainingSeconds !== null && (
+                <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  timerInWarningPeriod
+                    ? "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                    : "border-current/20 bg-black/5 dark:bg-white/5"
+                }`}>
+                  <Timer aria-hidden="true" size={18} />
+                  <span>{t(timerInWarningPeriod ? "scan.timer.warning" : "scan.timer.remaining")}</span>
+                  <strong className="font-mono tabular-nums">
+                    {String(Math.floor(remainingSeconds / 3600)).padStart(2, "0")}:
+                    {String(Math.floor((remainingSeconds % 3600) / 60)).padStart(2, "0")}:
+                    {String(remainingSeconds % 60).padStart(2, "0")}
+                  </strong>
+                </div>
+              )}
+              {result.ok && result.checkin && timerError && (
+                <p className="mt-2 text-sm text-amber-700 dark:text-amber-300" role="status">
+                  {t("scan.timer.unavailable")}
+                </p>
               )}
 
               {result.ok && (
@@ -606,10 +1073,10 @@ export function ScanPage() {
                           onChange={(event) => setSelectedResourceId(event.target.value)}
                           value={selectedResourceId}
                         >
-                          <option value="">{t("scan.fields.selectResource")}</option>
+                          <option value="">{t("scan.fields.noSpecificSeat")}</option>
                           {availableResources.map((resource) => (
                             <option key={resource.id} value={resource.id}>
-                              {resource.name} ({resource.type})
+                              {resource.name} ({resource.occupancy}/{resource.capacity})
                             </option>
                           ))}
                         </select>
@@ -617,7 +1084,7 @@ export function ScanPage() {
 
                       <button
                         className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-semibold text-white disabled:opacity-60"
-                        disabled={!selectedResourceId || actionBusy !== null}
+                        disabled={actionBusy !== null}
                         onClick={() => void handleCheckIn()}
                         type="button"
                       >
@@ -646,10 +1113,23 @@ export function ScanPage() {
                   )}
 
                   <button
-                    className="rounded-lg border border-current/25 px-4 py-2.5 font-semibold opacity-50"
-                    disabled
+                    className="inline-flex items-center gap-2 rounded-lg border border-current/25 px-4 py-2.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={
+                      !result.checkin?.id ||
+                      !permissions.includes("orders.create") &&
+                      !permissions.includes("orders.manage")
+                    }
+                    onClick={() =>
+                      navigate("/orders/new", {
+                        state: {
+                          customerId: result.customer?.id,
+                          checkinId: result.checkin?.id,
+                        },
+                      })
+                    }
                     type="button"
                   >
+                    <ShoppingBasket size={16} />
                     {t("scan.actions.newOrder")}
                   </button>
                 </div>
@@ -658,13 +1138,28 @@ export function ScanPage() {
           )}
         </section>
 
-        <aside className="space-y-5">
+        <aside className="grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <h3 className="text-lg font-semibold text-ink dark:text-white">
               {t("scan.sidePanels.insideNow")}
             </h3>
+            {insideError && (
+              <div
+                className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                role="alert"
+              >
+                <p>{t("scan.errors.insideLoad")}</p>
+                <button
+                  className="mt-2 font-semibold underline"
+                  onClick={() => void refreshInsideNow()}
+                  type="button"
+                >
+                  {t("scan.camera.retry")}
+                </button>
+              </div>
+            )}
             <div className="mt-4 space-y-3">
-              {insideNow.length === 0 ? (
+              {insideNow.length === 0 && !insideError ? (
                 <p className="text-sm text-slate-500">{t("scan.empty.insideNow")}</p>
               ) : (
                 insideNow.map((row) => {
@@ -680,18 +1175,17 @@ export function ScanPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-medium text-ink dark:text-white">{customerName}</p>
+                          <p className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                            {row.customer?.code ?? ""}
+                          </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {resourceName} · {formatInsideDuration(row.checked_in_at)}
+                            {resourceName} · {formatDateTime(row.checked_in_at, currentLocale)}
                           </p>
                         </div>
                         <button
-                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                          onClick={async () => {
-                            const client = getSupabaseClient();
-                            await client.rpc("check_out", { p_checkin: Number(row.id) });
-                            await refreshInsideNow();
-                            await refreshResources();
-                          }}
+                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200"
+                          disabled={actionBusy !== null}
+                          onClick={() => void handleInsideNowCheckOut(row)}
                           type="button"
                         >
                           {t("scan.actions.checkOut")}

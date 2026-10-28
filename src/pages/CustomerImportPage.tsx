@@ -15,7 +15,15 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent 
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { z } from "zod";
-import { getActiveStudentTypes } from "../services/customers";
+import {
+  excelSerialDateParts,
+  readCustomerSpreadsheet,
+  writeCustomerImportTemplate,
+} from "../lib/sheetjs";
+import {
+  getActiveStudentTypes,
+  type StudentType,
+} from "../services/customers";
 import { getImportErrors, runCustomerImport } from "../services/imports";
 
 type ImportField = "first_name" | "last_name" | "birth_date" | "student_type" | "phone" | "full_name";
@@ -108,6 +116,21 @@ function toIsoDateParts(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatIsoDate(year: number, month: number, day: number): string | null {
+  const date = new Date(year, month - 1, day);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function parseDateValue(value: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -115,37 +138,36 @@ function parseDateValue(value: string): string | null {
 
   const iso = trimmed.match(/^\d{4}-\d{2}-\d{2}$/);
   if (iso) {
-    const date = new Date(`${trimmed}T00:00:00`);
-    return Number.isNaN(date.getTime()) ? null : toIsoDateParts(date);
+    const [year, month, day] = trimmed.split("-").map(Number);
+    return formatIsoDate(year, month, day);
   }
 
-  const slash = trimmed.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/);
-  const dash = trimmed.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/);
-  if (slash || dash) {
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(trimmed)) {
     const segments = trimmed.split(/[\/\-]/).map((segment) => Number(segment));
     if (segments.length !== 3) return null;
-    let day = segments[0];
-    let month = segments[1];
-    let year = segments[2];
-    const isYearFirst = String(year).length === 4 && segments[0] > 31;
-    if (isYearFirst) {
-      year = segments[0];
-      month = segments[1];
-      day = segments[2];
-    }
-    if (Number.isNaN(day) || Number.isNaN(month) || Number.isNaN(year)) return null;
-    const date = new Date(year, month - 1, day);
-    return Number.isNaN(date.getTime()) ? null : toIsoDateParts(date);
+    const isYearFirst = trimmed.split(/[\/\-]/)[0].length === 4;
+    let [day, month, year] = segments;
+    if (isYearFirst) [year, month, day] = segments;
+    if (year < 100) year += year < 30 ? 2000 : 1900;
+    return formatIsoDate(year, month, day);
   }
 
   const asNumber = Number(trimmed);
   if (!Number.isNaN(asNumber) && Number.isFinite(asNumber)) {
-    const excelDate = new Date(Date.UTC(1899, 11, 30 + asNumber));
-    return Number.isNaN(excelDate.getTime()) ? null : toIsoDateParts(excelDate);
+    const excelDate = excelSerialDateParts(asNumber);
+    return excelDate
+      ? formatIsoDate(excelDate.year, excelDate.month, excelDate.day)
+      : null;
   }
 
-  const asDate = new Date(trimmed);
-  return Number.isNaN(asDate.getTime()) ? null : toIsoDateParts(asDate);
+  return null;
+}
+
+function importCellText(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toIsoDateParts(value);
+  }
+  return value == null ? "" : String(value).trim();
 }
 
 function splitFullName(value: string): { first_name: string; last_name: string } {
@@ -164,23 +186,28 @@ function parseDateForFormat(value: string, format: string): string | null {
   if (!trimmed) return null;
 
   if (format === "YYYY-MM-DD") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return parseDateValue(trimmed);
+    }
+    const serial = Number(trimmed);
+    return Number.isFinite(serial) ? parseDateValue(trimmed) : null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return parseDateValue(trimmed);
+  if (!/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(trimmed)) {
     return parseDateValue(trimmed);
   }
 
-  const parts = trimmed.split(/[\/\-]/);
-  if (parts.length !== 3) return parseDateValue(trimmed);
-
+  const parts = trimmed.split(/[\/\-]/).map(Number);
   if (format === "DD/MM/YYYY") {
-    const [day, month, year] = parts.map((part) => Number(part));
-    if (!day || !month || !year) return parseDateValue(trimmed);
-    const date = new Date(year, month - 1, day);
-    return Number.isNaN(date.getTime()) ? null : toIsoDateParts(date);
+    const [day, month, year] = parts;
+    const normalizedYear = year < 100 ? year + (year < 30 ? 2000 : 1900) : year;
+    return formatIsoDate(normalizedYear, month, day);
   }
 
-  const [month, day, year] = parts.map((part) => Number(part));
-  if (!day || !month || !year) return parseDateValue(trimmed);
-  const date = new Date(year, month - 1, day);
-  return Number.isNaN(date.getTime()) ? null : toIsoDateParts(date);
+  const [month, day, year] = parts;
+  const normalizedYear = year < 100 ? year + (year < 30 ? 2000 : 1900) : year;
+  return formatIsoDate(normalizedYear, month, day);
 }
 
 function getStoredDateFormat(): (typeof DATE_FORMATS)[number] {
@@ -206,20 +233,21 @@ export function CustomerImportPage() {
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
-  const [studentTypes, setStudentTypes] = useState<Array<{ id: string; name: string; active: boolean }>>([]);
+  const [studentTypes, setStudentTypes] = useState<StudentType[]>([]);
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [fullNameInOneColumn, setFullNameInOneColumn] = useState(false);
-  const [dateFormat, setDateFormat] = useState<(typeof DATE_FORMATS)[number]>("DD/MM/YYYY");
+  const [dateFormat, setDateFormat] = useState<(typeof DATE_FORMATS)[number]>(getStoredDateFormat);
   const [progress, setProgress] = useState(false);
   const [error, setError] = useState("");
   const [previewSummary, setPreviewSummary] = useState({ valid: 0, invalid: 0, duplicates: 0 });
   const [result, setResult] = useState<ImportResult | null>(null);
   const [resultErrors, setResultErrors] = useState<Array<{ row_number: number; reason: string }>>([]);
+  const [loadingErrorReport, setLoadingErrorReport] = useState(false);
+  const [errorReportLoaded, setErrorReportLoaded] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
-  const [pendingImportRows, setPendingImportRows] = useState<Array<Record<string, string>>>([]);
+  const [pendingImportCount, setPendingImportCount] = useState(0);
 
   useEffect(() => {
-    setDateFormat(getStoredDateFormat());
     void getActiveStudentTypes()
       .then((types) => setStudentTypes(types))
       .catch(() => setError(t("customers.import.errors.studentTypes")));
@@ -244,7 +272,37 @@ export function CustomerImportPage() {
   const previewData = useMemo(() => {
     if (!rows.length) return [] as PreviewRow[];
     const seen = new Set<string>();
-    const activeTypeNames = new Map(studentTypes.map((type) => [normalizeHeader(type.name), type.name]));
+    const activeTypeNames = new Map(
+      studentTypes.flatMap((type) => [
+        [normalizeHeader(type.name_en), type.name_en],
+        [normalizeHeader(type.name_ar), type.name_en],
+      ]),
+    );
+    const schema = z.object({
+      first_name: z
+        .string()
+        .trim()
+        .min(2, t("customers.import.validation.nameMin"))
+        .max(50, t("customers.import.validation.nameMax")),
+      last_name: z
+        .string()
+        .trim()
+        .min(2, t("customers.import.validation.nameMin"))
+        .max(50, t("customers.import.validation.nameMax")),
+      birth_date: z.string().refine((value) => {
+        const date = parseDateValue(value);
+        return Boolean(date && date <= toIsoDateParts(new Date()));
+      }, t("customers.import.validation.birthDate")),
+      student_type: z.string().trim().refine((value) => {
+        return activeTypeNames.has(normalizeHeader(value));
+      }, t("customers.import.validation.studentType")),
+      phone: z
+        .string()
+        .refine(
+          (value) => !value || /^[0-9 +\-]+$/.test(value.trim()),
+          t("customers.import.validation.phone"),
+        ),
+    });
     const preview: PreviewRow[] = [];
 
     rows.forEach((row) => {
@@ -282,32 +340,23 @@ export function CustomerImportPage() {
         phone: normalizedPhone,
       };
 
-      const schema = z.object({
-        first_name: z.string().trim().min(2).max(50),
-        last_name: z.string().trim().min(2).max(50),
-        birth_date: z.string().refine((value) => {
-          const date = parseDateValue(value);
-          if (!date) return false;
-          const when = new Date(`${date}T00:00:00`);
-          return !Number.isNaN(when.getTime()) && when <= new Date();
-        }, "Invalid birth date"),
-        student_type: z.string().trim().refine((value) => {
-          const activeName = activeTypeNames.get(normalizeHeader(value));
-          return Boolean(activeName);
-        }, "Student type not found"),
-        phone: z.string().refine((value) => !value || /^[0-9 +\-]+$/.test(value.trim()), "Invalid phone"),
-      });
-
       const parsed = schema.safeParse(normalizedRow);
+      const duplicateKeys = [
+        `person:${JSON.stringify([
+          normalizedRow.first_name.toLowerCase(),
+          normalizedRow.last_name.toLowerCase(),
+          normalizedRow.birth_date,
+        ])}`,
+        ...(normalizedRow.phone ? [`phone:${normalizedRow.phone}`] : []),
+      ];
       let duplicate = false;
       let reason = "";
-      const signature = `${normalizedRow.first_name.toLowerCase()}|${normalizedRow.last_name.toLowerCase()}|${normalizedRow.birth_date}`;
       if (parsed.success) {
-        if (seen.has(signature)) {
+        if (duplicateKeys.some((key) => seen.has(key))) {
           duplicate = true;
-          reason = "Duplicate inside the file";
+          reason = t("customers.import.validation.duplicate");
         }
-        seen.add(signature);
+        duplicateKeys.forEach((key) => seen.add(key));
       } else {
         reason = parsed.error.issues.map((issue) => issue.message).join("; ");
       }
@@ -327,7 +376,7 @@ export function CustomerImportPage() {
     });
 
     return preview;
-  }, [columnMap, dateFormat, fullNameInOneColumn, rows, studentTypes]);
+  }, [columnMap, dateFormat, fullNameInOneColumn, rows, studentTypes, t]);
 
   useEffect(() => {
     setPreviewSummary({
@@ -363,28 +412,13 @@ export function CustomerImportPage() {
       return;
     }
     const extension = file.name.split(".").pop()?.toLowerCase();
-    if (!extension || !["xlsx", "xls", "csv"].includes(extension)) {
+    if (!extension || !["xlsx", "csv"].includes(extension)) {
       setError(t("customers.import.errors.fileType"));
       return;
     }
 
-    if (!(window as any).XLSX) {
-      setError(t("customers.import.errors.parse"));
-      return;
-    }
-
     try {
-      const workbook = (window as any).XLSX.read(await file.arrayBuffer(), {
-        type: "array",
-        cellDates: true,
-        raw: false,
-      });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawRows = (window as any).XLSX.utils.sheet_to_json(firstSheet, {
-        header: 1,
-        defval: "",
-        blankrows: false,
-      });
+      const rawRows = readCustomerSpreadsheet(await file.arrayBuffer());
       if (!rawRows.length) {
         setError(t("customers.import.errors.empty"));
         return;
@@ -399,7 +433,7 @@ export function CustomerImportPage() {
       const dataRows = (rawRows.slice(1) as unknown[][]).map((row) => {
         const record: Record<string, string> = {};
         headersFromSheet.forEach((header, index) => {
-          record[header] = String(row[index] ?? "");
+          record[header] = importCellText(row[index]);
         });
         return record;
       });
@@ -427,17 +461,12 @@ export function CustomerImportPage() {
   };
 
   const downloadTemplate = () => {
-    if (!(window as any).XLSX) {
+    try {
+      writeCustomerImportTemplate(t("customers.import.templateExample"));
+      setError("");
+    } catch {
       setError(t("customers.import.errors.parse"));
-      return;
     }
-    const workbook = (window as any).XLSX.utils.book_new();
-    const sheet = (window as any).XLSX.utils.aoa_to_sheet([
-      ["first_name", "last_name", "birth_date", "student_type", "phone"],
-      ["EXAMPLE", "DELETE_ME", "2000-01-01", "General", "0500000000"],
-    ]);
-    (window as any).XLSX.utils.book_append_sheet(workbook, sheet, "Customers");
-    (window as any).XLSX.writeFile(workbook, "customer_import_template.xlsx");
   };
 
   const handleContinueToPreview = () => {
@@ -470,30 +499,63 @@ export function CustomerImportPage() {
         filename: fileName,
         updateExisting,
       });
-      setPendingImportRows(payload);
+      setPendingImportCount(payload.length);
       setResult(response);
-      const errors = await getImportErrors(response.import_id);
-      setResultErrors(errors.map((item) => ({ row_number: item.row_number, reason: item.reason })));
+      setLoadingErrorReport(true);
       setStep(4);
+      try {
+        const errors = await getImportErrors(response.import_id);
+        setResultErrors(
+          errors.map((item) => ({
+            row_number: item.row_number,
+            reason: item.reason,
+          })),
+        );
+        setErrorReportLoaded(true);
+      } catch {
+        setErrorReportLoaded(false);
+        setError(t("customers.import.errors.errorReport"));
+      } finally {
+        setLoadingErrorReport(false);
+      }
     } catch (importError) {
-      setError((importError as Error).message || t("customers.import.errors.importFailed"));
+      setError(t("customers.import.errors.importFailed"));
     } finally {
       setProgress(false);
     }
   };
 
-  const downloadErrorReport = () => {
+  const downloadErrorReport = async () => {
     if (!result) return;
-    const csv = buildCsv(resultErrors);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `import-errors-${result.import_id}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    setLoadingErrorReport(true);
+    setError("");
+    try {
+      let errors = resultErrors;
+      if (!errorReportLoaded) {
+        errors = (await getImportErrors(result.import_id)).map((item) => ({
+          row_number: item.row_number,
+          reason: item.reason,
+        }));
+        setResultErrors(errors);
+        setErrorReportLoaded(true);
+      }
+
+      const csv = buildCsv(errors);
+      const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `import-errors-${result.import_id}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setErrorReportLoaded(false);
+      setError(t("customers.import.errors.errorReport"));
+    } finally {
+      setLoadingErrorReport(false);
+    }
   };
 
   const mapFields = fullNameInOneColumn
@@ -537,7 +599,7 @@ export function CustomerImportPage() {
       {step === 1 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className={`cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition ${isDragging ? "border-brand bg-brand/5" : "border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"}`} onDragLeave={() => setIsDragging(false)} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()}>
-            <input accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileSelection} ref={fileInputRef} type="file" />
+            <input accept=".xlsx,.csv" className="hidden" onChange={handleFileSelection} ref={fileInputRef} type="file" />
             <FileSpreadsheet className="mx-auto mb-3 text-brand" size={42} />
             <p className="text-lg font-semibold text-ink dark:text-white">{t("customers.import.uploadTitle")}</p>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{t("customers.import.uploadDescription")}</p>
@@ -695,7 +757,7 @@ export function CustomerImportPage() {
               { key: "updated", value: result.updated },
               { key: "skipped", value: result.skipped },
               { key: "failed", value: result.failed },
-              { key: "total", value: pendingImportRows.length },
+              { key: "total", value: pendingImportCount },
             ].map((metric) => (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950" key={metric.key}>
                 <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{t(`customers.import.result.${metric.key}`)}</p>
@@ -705,8 +767,8 @@ export function CustomerImportPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <button className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200" onClick={downloadErrorReport} type="button">
-              <Download size={16} /> {t("customers.import.downloadErrors")}
+            <button className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200" disabled={loadingErrorReport} onClick={downloadErrorReport} type="button">
+              <Download size={16} /> {loadingErrorReport ? t("customers.import.loadingErrorReport") : t("customers.import.downloadErrors")}
             </button>
             <Link className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white" to={`/customers/cards/print?import=${result.import_id}`}>
               <Printer size={16} /> {t("customers.import.printCards")}
